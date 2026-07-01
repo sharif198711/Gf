@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Google AI Studio App</title>
+    <script>
+      // Safe sandbox fallback: prevent crashes when extensions or polyfills try to write to a read-only window.fetch
+      try {
+        const desc = Object.getOwnPropertyDescriptor(window, 'fetch') || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(window), 'fetch');
+        if (window.fetch && desc && (desc.writable === false || (desc.get && !desc.set) || (!desc.writable && !desc.set))) {
+          const originalFetch = window.fetch;
+          let currentFetch = originalFetch;
+          Object.defineProperty(window, 'fetch', {
+            get() {
+              return currentFetch;
+            },
+            set(value) {
+              currentFetch = value;
+            },
+            configurable: true,
+            enumerable: true
+          });
+        }
+      } catch (e) {
+        console.warn('Sandbox window.fetch patch omitted:', e);
+      }
+
+      // Global error tracker to show the exact error leading to a white screen
+      window.addEventListener('error', function(event) {
+        showErrorOverlay('Uncaught Error: ' + event.message + '\nat ' + event.filename + ':' + event.lineno + ':' + event.colno + '\n\nStack: ' + (event.error ? event.error.stack : 'No stack trace available'));
+      });
+      window.addEventListener('unhandledrejection', function(event) {
+        showErrorOverlay('Unhandled Promise Rejection: ' + event.reason + '\n\nStack: ' + (event.reason && event.reason.stack ? event.reason.stack : 'No stack trace available'));
+      });
+
+      function showErrorOverlay(msg) {
+        const createOverlay = () => {
+          if (document.getElementById('debug-error-overlay')) return;
+          
+          const overlay = document.createElement('div');
+          overlay.id = 'debug-error-overlay';
+          overlay.style.position = 'fixed';
+          overlay.style.top = '0';
+          overlay.style.left = '0';
+          overlay.style.width = '100vw';
+          overlay.style.height = '100vh';
+          overlay.style.backgroundColor = '#0b0f19';
+          overlay.style.color = '#fda4af';
+          overlay.style.padding = '24px';
+          overlay.style.fontFamily = 'monospace';
+          overlay.style.fontSize = '14px';
+          overlay.style.lineHeight = '1.5';
+          overlay.style.overflow = 'auto';
+          overlay.style.zIndex = '999999';
+          overlay.style.boxSizing = 'border-box';
+          
+          overlay.innerHTML = `
+            <div style="max-width: 800px; margin: 40px auto; background: #111827; border: 1px solid #f43f5e; padding: 24px; border-radius: 16px; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.5); text-align: right;" dir="rtl">
+              <h2 style="color: #ef4444; margin-top: 0; display: flex; align-items: center; gap: 8px; font-family: sans-serif; font-size: 20px;">
+                ⚠️ تم اكتشاف خطأ برمجي (Runtime Error)
+              </h2>
+              <p style="color: #9ca3af; font-size: 13px; font-family: sans-serif; margin-bottom: 16px;">
+                حدث خطأ في المتصفح يمنع تحميل تطبيق "حصّالة". يرجى مشاركة هذا الخطأ مع المطور لحله فوراً:
+              </p>
+              <pre style="background: #030712; padding: 16px; border-radius: 12px; border: 1px solid #1f2937; overflow-x: auto; white-space: pre-wrap; word-break: break-all; color: #f43f5e; font-size: 12px; text-align: left;" dir="ltr">${escapeHtml(msg)}</pre>
+              <div style="margin-top: 20px; text-align: left;">
+                <button onclick="window.location.reload()" style="background: #f43f5e; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; font-family: sans-serif; font-size: 13px;">إعادة تحميل التطبيق 🔄</button>
+              </div>
+            </div>
+          `;
+          document.body.appendChild(overlay);
+        };
+
+        if (document.body) {
+          createOverlay();
+        } else {
+          window.addEventListener('DOMContentLoaded', createOverlay);
+        }
+      }
+
+      function escapeHtml(text) {
+        if (!text) return '';
+        return text.toString()
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+    </script>
+  </head>
+  <body style="background-color: #0b0f19; color: #f8fafc; margin: 0; padding: 0;">
+    <div id="root" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: sans-serif; text-align: center; direction: rtl; padding: 20px; box-sizing: border-box;">
+      <div style="font-size: 48px; margin-bottom: 16px;">⏳</div>
+      <div style="font-size: 20px; font-weight: bold; margin-bottom: 8px; color: #fbbf24;">جاري تشغيل تطبيق "حصّالة الذهب والادخار"...</div>
+      <div style="font-size: 14px; color: #94a3b8; max-width: 400px; line-height: 1.5;">إذا استمرت هذه الصفحة بالظهور لأكثر من ثوانٍ معدودة، فقد يكون هناك خطأ في تحميل ملفات التشغيل في متصفحك. يرجى تزويدنا بأي خطأ يظهر في وحدة تحكم المطور (Developer Console).</div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

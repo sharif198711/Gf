@@ -1,0 +1,6 @@
+{
+  "name": "Gold & Savings Tracker",
+  "description": "نظام احترافي لإدارة الميزانية والمصاريف والادخار وحسابات الذهب والوصول لهدف 100 ألف يورو",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
