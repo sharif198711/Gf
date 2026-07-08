@@ -30,14 +30,33 @@ if (file_exists(__DIR__ . '/db_config.php')) {
         require_once __DIR__ . '/db_config.php';
         
         if (defined('DB_HOST') && defined('DB_NAME') && defined('DB_USER')) {
-            $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
             $options = [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4"
             ];
-            $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
-            $db_connected = true;
+            
+            try {
+                $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
+                $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
+                $db_connected = true;
+            } catch (PDOException $e_direct) {
+                // Connection failed. Maybe the database does not exist yet!
+                // Let's connect without dbname and try to CREATE DATABASE
+                try {
+                    $dsn_no_db = "mysql:host=" . DB_HOST . ";charset=utf8mb4";
+                    $pdo_no_db = new PDO($dsn_no_db, DB_USER, DB_PASS, $options);
+                    $pdo_no_db->exec("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+                    
+                    // Try connecting to the newly created database
+                    $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
+                    $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
+                    $db_connected = true;
+                } catch (PDOException $e_create) {
+                    // Re-throw the original direct connection exception so it's handled by the outer try-catch
+                    throw $e_direct;
+                }
+            }
 
             // Automatically check and create tables on the first request if they do not exist
             try {
