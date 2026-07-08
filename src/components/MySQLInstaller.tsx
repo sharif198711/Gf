@@ -22,11 +22,12 @@ interface MySQLInstallerProps {
 }
 
 export default function MySQLInstaller({ isOpen, onClose, onInstallSuccess }: MySQLInstallerProps) {
-  const [dbHost, setDbHost] = useState('127.0.0.1');
+  const [dbType, setDbType] = useState<'sqlite' | 'mysql'>('sqlite');
+  const [dbHost, setDbHost] = useState('localhost');
   const [dbPort, setDbPort] = useState('3306');
   const [dbUser, setDbUser] = useState('');
   const [dbPassword, setDbPassword] = useState('');
-  const [dbName, setDbName] = useState('');
+  const [dbName, setDbName] = useState('secure_hassala.sqlite');
   const [geminiApiKey, setGeminiApiKey] = useState('');
   
   const [isLoading, setIsLoading] = useState(false);
@@ -40,17 +41,24 @@ export default function MySQLInstaller({ isOpen, onClose, onInstallSuccess }: My
     setIsLoading(true);
 
     try {
+      const payload = dbType === 'sqlite' ? {
+        dbType: 'sqlite',
+        dbName: dbName.endsWith('.sqlite') ? dbName : `${dbName}.sqlite`,
+        geminiApiKey
+      } : {
+        dbType: 'mysql',
+        dbHost,
+        dbPort,
+        dbUser,
+        dbPassword,
+        dbName,
+        geminiApiKey
+      };
+
       const response = await fetch(getApiUrl('api/install'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          dbHost,
-          dbPort,
-          dbUser,
-          dbPassword,
-          dbName,
-          geminiApiKey
-        })
+        body: JSON.stringify(payload)
       });
 
       const data = await response.json();
@@ -92,26 +100,74 @@ export default function MySQLInstaller({ isOpen, onClose, onInstallSuccess }: My
           <div className="w-14 h-14 bg-amber-500/10 text-amber-400 rounded-2xl flex items-center justify-center mx-auto border border-amber-500/20 shadow-lg shadow-amber-500/5">
             <Database className="w-6 h-6" />
           </div>
-          <h2 className="text-2xl font-black text-white">معالج التثبيت التلقائي لقاعدة البيانات</h2>
+          <h2 className="text-2xl font-black text-white">معالج التثبيت التلقائي الذكي</h2>
           <p className="text-xs text-slate-400 font-sans leading-relaxed max-w-md mx-auto">
-            قم بتهيئة وربط تطبيقك مباشرة بقاعدة بيانات MySQL السحابية لتمكين تخزين المعاملات والحسابات بشكل آمن وتلقائي دون كتابة أي أوامر برمجية.
+            قم بتهيئة وتثبيت قاعدة البيانات لتطبيقك على سيرفر الاستضافة (Hostinger) بضغطة زر واحدة.
           </p>
         </div>
 
+        {/* Selection Tabs */}
+        <div className="grid grid-cols-2 p-1.5 bg-slate-950 border border-slate-800 rounded-xl">
+          <button
+            type="button"
+            onClick={() => {
+              setDbType('sqlite');
+              setDbName('secure_hassala.sqlite');
+            }}
+            className={`py-2 text-xs font-bold rounded-lg transition-all ${
+              dbType === 'sqlite'
+                ? 'bg-amber-500 text-slate-950 shadow-md font-black'
+                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+            }`}
+          >
+            التثبيت التلقائي 100% (SQLite)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDbType('mysql');
+              setDbName('');
+            }}
+            className={`py-2 text-xs font-bold rounded-lg transition-all ${
+              dbType === 'mysql'
+                ? 'bg-amber-500 text-slate-950 shadow-md font-black'
+                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+            }`}
+          >
+            ربط يدوي بقاعدة (MySQL)
+          </button>
+        </div>
+
         {/* Instruction Badge */}
-        <div className="bg-slate-900/60 border border-slate-800 p-3.5 rounded-2xl text-[11px] text-slate-400 font-sans leading-relaxed space-y-1">
-          <div className="flex items-center gap-1.5 font-bold text-amber-400 text-xs mb-1">
-            <Cpu className="w-3.5 h-3.5" />
-            <span>ماذا يفعل هذا المعالج؟</span>
-          </div>
-          <p>١. يتصل بخادم MySQL ويقوم بإنشاء قاعدة البيانات بالاسم المختار إذا لم تكن موجودة.</p>
-          <p>٢. يبني جداول الحسابات والمعاملات والمدخرات بالكامل تلقائياً.</p>
-          <p>٣. ينشئ ملف التكوين <span className="font-mono font-bold text-slate-200">.env</span> على السيرفر مباشرة لتفعيل النظام السحابي فوراً.</p>
+        <div className="bg-slate-900/60 border border-slate-800 p-3.5 rounded-2xl text-[11px] text-slate-400 font-sans leading-relaxed space-y-1.5">
+          {dbType === 'sqlite' ? (
+            <>
+              <div className="flex items-center gap-1.5 font-bold text-amber-400 text-xs mb-1">
+                <Cpu className="w-3.5 h-3.5" />
+                <span>💡 الحل الجذري الأسهل والأسرع لـ Hostinger:</span>
+              </div>
+              <p className="text-slate-300 font-medium">ميزة هذا الخيار (SQLite) أنه لا يتطلب إنشاء أي قواعد بيانات أو مستخدمين في لوحة التحكم بشكل يدوي!</p>
+              <p>١. سيقوم السيرفر بإنشاء ملف قاعدة البيانات <span className="font-mono text-amber-400">secure_hassala.sqlite</span> تلقائياً فوراً.</p>
+              <p>٢. يتم إنشاء جميع الجداول وهيكلة البيانات والمدخرات بنسبة 100% تلقائياً دون أي تدخل منك.</p>
+              <p>٣. يتم تأمين وحماية ملف البيانات بالكامل ضد أي تحميل خارجي عبر جدار الحماية <span className="font-mono font-bold text-slate-200">.htaccess</span>.</p>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-1.5 font-bold text-amber-400 text-xs mb-1">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                <span>⚠️ يتطلب إعداداً مسبقاً في لوحة التحكم:</span>
+              </div>
+              <p>١. يتصل بخدمة MySQL السحابية على سيرفرك باستخدام البيانات المدخلة.</p>
+              <p className="text-rose-400">٢. هام جداً: يجب أن تقوم بإنشاء قاعدة البيانات مسبقاً من لوحة تحكم الاستضافة (hPanel) وتسميتها لأن السيرفرات المشتركة تمنع السكريبتات من إنشاء قواعد بيانات جديدة لأسباب أمنية.</p>
+            </>
+          )}
         </div>
 
         {/* Form */}
         <form onSubmit={handleInstallSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {dbType === 'mysql' && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-300 mb-1.5">خادم قاعدة البيانات (DB_HOST)</label>
               <div className="relative">
@@ -173,21 +229,40 @@ export default function MySQLInstaller({ isOpen, onClose, onInstallSuccess }: My
               </div>
             </div>
           </div>
+        </>
+      )}
 
-          <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1.5">اسم قاعدة البيانات المردة (DB_NAME)</label>
-            <div className="relative">
-              <Database className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 w-4 h-4" />
-              <input
-                type="text"
-                value={dbName}
-                onChange={(e) => setDbName(e.target.value)}
-                placeholder="u123456789_hassala_db"
-                required
-                className="w-full pr-10 pl-4 py-2.5 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl focus:outline-none focus:ring-1 focus:ring-amber-500 text-xs font-sans text-white font-medium"
-              />
+          {dbType === 'mysql' && (
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1.5">اسم قاعدة البيانات المراد ربطها (DB_NAME)</label>
+              <div className="relative">
+                <Database className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 w-4 h-4" />
+                <input
+                  type="text"
+                  value={dbName}
+                  onChange={(e) => setDbName(e.target.value)}
+                  placeholder="u123456789_hassala_db"
+                  required={dbType === 'mysql'}
+                  className="w-full pr-10 pl-4 py-2.5 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl focus:outline-none focus:ring-1 focus:ring-amber-500 text-xs font-sans text-white font-medium"
+                />
+              </div>
             </div>
-          </div>
+          )}
+
+          {dbType === 'sqlite' && (
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1.5">اسم ملف قاعدة البيانات (التلقائي)</label>
+              <div className="relative">
+                <Database className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                <input
+                  type="text"
+                  value={dbName}
+                  disabled
+                  className="w-full pr-10 pl-4 py-2.5 bg-slate-900 border border-slate-800/80 rounded-xl text-xs font-sans text-slate-400 font-bold cursor-not-allowed"
+                />
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-bold text-slate-300 mb-1.5">

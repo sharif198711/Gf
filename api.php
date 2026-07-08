@@ -29,7 +29,16 @@ if (file_exists(__DIR__ . '/db_config.php')) {
     try {
         require_once __DIR__ . '/db_config.php';
         
-        if (defined('DB_HOST') && defined('DB_NAME') && defined('DB_USER')) {
+        $is_sqlite = (defined('DB_TYPE') && DB_TYPE === 'sqlite');
+        if ($is_sqlite && defined('DB_NAME')) {
+            $options = [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+            ];
+            $sqlite_file = __DIR__ . '/' . DB_NAME;
+            $pdo = new PDO("sqlite:" . $sqlite_file, null, null, $options);
+            $db_connected = true;
+        } else if (defined('DB_HOST') && defined('DB_NAME') && defined('DB_USER')) {
             $options = [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -60,47 +69,97 @@ if (file_exists(__DIR__ . '/db_config.php')) {
 
             // Automatically check and create tables on the first request if they do not exist
             try {
-                $check_stmt = $pdo->query("SHOW TABLES LIKE 'users'");
-                if ($check_stmt->rowCount() === 0) {
-                    // Create users table
-                    $pdo->exec("CREATE TABLE IF NOT EXISTS users (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        email VARCHAR(255) UNIQUE NOT NULL,
-                        password VARCHAR(255) NOT NULL,
-                        bank_balance DECIMAL(15, 2) DEFAULT 0.00,
-                        cash_balance DECIMAL(15, 2) DEFAULT 0.00,
-                        gold_grams DECIMAL(10, 3) DEFAULT 0.000,
-                        gold_price_per_gram DECIMAL(10, 2) DEFAULT 75.00,
-                        goal_target DECIMAL(15, 2) DEFAULT 100000.00,
-                        goal_title VARCHAR(255) DEFAULT 'توفير مئة ألف يورو',
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+                $tables_exist = false;
+                if ($is_sqlite) {
+                    $check_stmt = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='users'");
+                    if ($check_stmt && $check_stmt->fetch()) {
+                        $tables_exist = true;
+                    }
+                } else {
+                    $check_stmt = $pdo->query("SHOW TABLES LIKE 'users'");
+                    if ($check_stmt && $check_stmt->rowCount() > 0) {
+                        $tables_exist = true;
+                    }
+                }
 
-                    // Create transactions table
-                    $pdo->exec("CREATE TABLE IF NOT EXISTS transactions (
-                        id VARCHAR(50) PRIMARY KEY,
-                        user_id INT NOT NULL,
-                        date DATE NOT NULL,
-                        type VARCHAR(20) NOT NULL,
-                        amount DECIMAL(15, 2) NOT NULL,
-                        category VARCHAR(100) NOT NULL,
-                        description VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-                        account VARCHAR(100) NOT NULL,
-                        gold_grams DECIMAL(10, 3) DEFAULT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+                if (!$tables_exist) {
+                    if ($is_sqlite) {
+                        // Create SQLite tables
+                        $pdo->exec("CREATE TABLE IF NOT EXISTS users (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            email VARCHAR(255) UNIQUE NOT NULL,
+                            password VARCHAR(255) NOT NULL,
+                            bank_balance DECIMAL(15, 2) DEFAULT 0.00,
+                            cash_balance DECIMAL(15, 2) DEFAULT 0.00,
+                            gold_grams DECIMAL(10, 3) DEFAULT 0.000,
+                            gold_price_per_gram DECIMAL(10, 2) DEFAULT 75.00,
+                            goal_target DECIMAL(15, 2) DEFAULT 100000.00,
+                            goal_title VARCHAR(255) DEFAULT 'توفير مئة ألف يورو',
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        );");
 
-                    // Create category_budgets table
-                    $pdo->exec("CREATE TABLE IF NOT EXISTS category_budgets (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        user_id INT NOT NULL,
-                        category_key VARCHAR(100) NOT NULL,
-                        limit_amount DECIMAL(15, 2) NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE KEY unique_user_category (user_id, category_key),
-                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+                        $pdo->exec("CREATE TABLE IF NOT EXISTS transactions (
+                            id VARCHAR(50) PRIMARY KEY,
+                            user_id INTEGER NOT NULL,
+                            date DATE NOT NULL,
+                            type VARCHAR(20) NOT NULL,
+                            amount DECIMAL(15, 2) NOT NULL,
+                            category VARCHAR(100) NOT NULL,
+                            description VARCHAR(255),
+                            account VARCHAR(100) NOT NULL,
+                            gold_grams DECIMAL(10, 3) DEFAULT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                        );");
+
+                        $pdo->exec("CREATE TABLE IF NOT EXISTS category_budgets (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_id INTEGER NOT NULL,
+                            category_key VARCHAR(100) NOT NULL,
+                            limit_amount DECIMAL(15, 2) NOT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            UNIQUE (user_id, category_key),
+                            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                        );");
+                    } else {
+                        // Create MySQL tables
+                        $pdo->exec("CREATE TABLE IF NOT EXISTS users (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            email VARCHAR(255) UNIQUE NOT NULL,
+                            password VARCHAR(255) NOT NULL,
+                            bank_balance DECIMAL(15, 2) DEFAULT 0.00,
+                            cash_balance DECIMAL(15, 2) DEFAULT 0.00,
+                            gold_grams DECIMAL(10, 3) DEFAULT 0.000,
+                            gold_price_per_gram DECIMAL(10, 2) DEFAULT 75.00,
+                            goal_target DECIMAL(15, 2) DEFAULT 100000.00,
+                            goal_title VARCHAR(255) DEFAULT 'توفير مئة ألف يورو',
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                        $pdo->exec("CREATE TABLE IF NOT EXISTS transactions (
+                            id VARCHAR(50) PRIMARY KEY,
+                            user_id INT NOT NULL,
+                            date DATE NOT NULL,
+                            type VARCHAR(20) NOT NULL,
+                            amount DECIMAL(15, 2) NOT NULL,
+                            category VARCHAR(100) NOT NULL,
+                            description VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                            account VARCHAR(100) NOT NULL,
+                            gold_grams DECIMAL(10, 3) DEFAULT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                        $pdo->exec("CREATE TABLE IF NOT EXISTS category_budgets (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            user_id INT NOT NULL,
+                            category_key VARCHAR(100) NOT NULL,
+                            limit_amount DECIMAL(15, 2) NOT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            UNIQUE KEY unique_user_category (user_id, category_key),
+                            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+                    }
 
                     // Insert default admin user: admin@hassala.com
                     $stmt_insert_user = $pdo->prepare("INSERT INTO users (email, password, bank_balance, cash_balance, gold_grams, gold_price_per_gram, goal_target, goal_title) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
@@ -301,6 +360,7 @@ $input_data = json_decode(file_get_contents('php://input'), true);
 // ---------------------------------------------------------
 if ($route === 'install') {
     // Read parameters
+    $db_type = isset($input_data['dbType']) ? trim($input_data['dbType']) : 'mysql';
     $host = isset($input_data['dbHost']) ? trim($input_data['dbHost']) : '127.0.0.1';
     $port = isset($input_data['dbPort']) ? trim($input_data['dbPort']) : '3306';
     $user = isset($input_data['dbUser']) ? trim($input_data['dbUser']) : '';
@@ -308,78 +368,138 @@ if ($route === 'install') {
     $name = isset($input_data['dbName']) ? trim($input_data['dbName']) : '';
     $gemini_key = isset($input_data['geminiApiKey']) ? trim($input_data['geminiApiKey']) : '';
 
-    if (empty($name) || empty($user)) {
+    if ($db_type === 'mysql' && (empty($name) || empty($user))) {
         http_response_code(400);
         echo json_encode(["error" => "جميع الحقول (اسم قاعدة البيانات واسم المستخدم) مطلوبة لتثبيت النظام."]);
+        exit;
+    } else if ($db_type === 'sqlite' && empty($name)) {
+        http_response_code(400);
+        echo json_encode(["error" => "اسم ملف قاعدة البيانات SQLite مطلوب."]);
         exit;
     }
 
     try {
-        $options = [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4"
-        ];
+        if ($db_type === 'sqlite') {
+            $options = [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+            ];
+            $sqlite_file = __DIR__ . '/' . $name;
+            $test_pdo = new PDO("sqlite:" . $sqlite_file, null, null, $options);
+        } else {
+            $options = [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4"
+            ];
 
-        // First attempt: Connect directly to the database (Crucial for shared hosting like Hostinger!)
-        try {
-            $dsn_with_db = "mysql:host={$host};dbname={$name};port={$port};charset=utf8mb4";
-            $test_pdo = new PDO($dsn_with_db, $user, $pass, $options);
-        } catch (PDOException $e_direct) {
-            // Second attempt: Fallback to connect without database name and try creating it (for local testing/empty server)
+            // First attempt: Connect directly to the database (Crucial for shared hosting like Hostinger!)
             try {
-                $dsn_no_db = "mysql:host={$host};port={$port};charset=utf8mb4";
-                $test_pdo = new PDO($dsn_no_db, $user, $pass, $options);
-                $test_pdo->exec("CREATE DATABASE IF NOT EXISTS `{$name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-                $test_pdo->exec("USE `{$name}`");
-            } catch (PDOException $e_fallback) {
-                // Throw the original direct connection exception as it is the most meaningful
-                throw $e_direct;
+                $dsn_with_db = "mysql:host={$host};dbname={$name};port={$port};charset=utf8mb4";
+                $test_pdo = new PDO($dsn_with_db, $user, $pass, $options);
+            } catch (PDOException $e_direct) {
+                // Second attempt: Fallback to connect without database name and try creating it (for local testing/empty server)
+                try {
+                    $dsn_no_db = "mysql:host={$host};port={$port};charset=utf8mb4";
+                    $test_pdo = new PDO($dsn_no_db, $user, $pass, $options);
+                    $test_pdo->exec("CREATE DATABASE IF NOT EXISTS `{$name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+                    $test_pdo->exec("USE `{$name}`");
+                } catch (PDOException $e_fallback) {
+                    // Throw the original direct connection exception as it is the most meaningful
+                    throw $e_direct;
+                }
             }
         }
 
-        // Create table: users
-        $sql_users = "CREATE TABLE IF NOT EXISTS users (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            email VARCHAR(255) UNIQUE NOT NULL,
-            password VARCHAR(255) NOT NULL,
-            bank_balance DECIMAL(15, 2) DEFAULT 0.00,
-            cash_balance DECIMAL(15, 2) DEFAULT 0.00,
-            gold_grams DECIMAL(10, 3) DEFAULT 0.000,
-            gold_price_per_gram DECIMAL(10, 2) DEFAULT 75.00,
-            goal_target DECIMAL(15, 2) DEFAULT 100000.00,
-            goal_title VARCHAR(255) DEFAULT 'توفير مئة ألف يورو',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
-        $test_pdo->exec($sql_users);
+        $is_sql_sqlite = ($db_type === 'sqlite');
 
-        // Create table: transactions
-        $sql_transactions = "CREATE TABLE IF NOT EXISTS transactions (
-            id VARCHAR(50) PRIMARY KEY,
-            user_id INT NOT NULL,
-            date DATE NOT NULL,
-            type VARCHAR(20) NOT NULL,
-            amount DECIMAL(15, 2) NOT NULL,
-            category VARCHAR(100) NOT NULL,
-            description VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-            account VARCHAR(100) NOT NULL,
-            gold_grams DECIMAL(10, 3) DEFAULT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
-        $test_pdo->exec($sql_transactions);
+        if ($is_sql_sqlite) {
+            // Create table: users
+            $sql_users = "CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                bank_balance DECIMAL(15, 2) DEFAULT 0.00,
+                cash_balance DECIMAL(15, 2) DEFAULT 0.00,
+                gold_grams DECIMAL(10, 3) DEFAULT 0.000,
+                gold_price_per_gram DECIMAL(10, 2) DEFAULT 75.00,
+                goal_target DECIMAL(15, 2) DEFAULT 100000.00,
+                goal_title VARCHAR(255) DEFAULT 'توفير مئة ألف يورو',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );";
+            $test_pdo->exec($sql_users);
 
-        // Create table: category_budgets
-        $sql_budgets = "CREATE TABLE IF NOT EXISTS category_budgets (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL,
-            category_key VARCHAR(100) NOT NULL,
-            limit_amount DECIMAL(15, 2) NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY unique_user_category (user_id, category_key),
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
-        $test_pdo->exec($sql_budgets);
+            // Create table: transactions
+            $sql_transactions = "CREATE TABLE IF NOT EXISTS transactions (
+                id VARCHAR(50) PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                date DATE NOT NULL,
+                type VARCHAR(20) NOT NULL,
+                amount DECIMAL(15, 2) NOT NULL,
+                category VARCHAR(100) NOT NULL,
+                description VARCHAR(255),
+                account VARCHAR(100) NOT NULL,
+                gold_grams DECIMAL(10, 3) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );";
+            $test_pdo->exec($sql_transactions);
+
+            // Create table: category_budgets
+            $sql_budgets = "CREATE TABLE IF NOT EXISTS category_budgets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                category_key VARCHAR(100) NOT NULL,
+                limit_amount DECIMAL(15, 2) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (user_id, category_key),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );";
+            $test_pdo->exec($sql_budgets);
+        } else {
+            // Create table: users
+            $sql_users = "CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                bank_balance DECIMAL(15, 2) DEFAULT 0.00,
+                cash_balance DECIMAL(15, 2) DEFAULT 0.00,
+                gold_grams DECIMAL(10, 3) DEFAULT 0.000,
+                gold_price_per_gram DECIMAL(10, 2) DEFAULT 75.00,
+                goal_target DECIMAL(15, 2) DEFAULT 100000.00,
+                goal_title VARCHAR(255) DEFAULT 'توفير مئة ألف يورو',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+            $test_pdo->exec($sql_users);
+
+            // Create table: transactions
+            $sql_transactions = "CREATE TABLE IF NOT EXISTS transactions (
+                id VARCHAR(50) PRIMARY KEY,
+                user_id INT NOT NULL,
+                date DATE NOT NULL,
+                type VARCHAR(20) NOT NULL,
+                amount DECIMAL(15, 2) NOT NULL,
+                category VARCHAR(100) NOT NULL,
+                description VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                account VARCHAR(100) NOT NULL,
+                gold_grams DECIMAL(10, 3) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+            $test_pdo->exec($sql_transactions);
+
+            // Create table: category_budgets
+            $sql_budgets = "CREATE TABLE IF NOT EXISTS category_budgets (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                category_key VARCHAR(100) NOT NULL,
+                limit_amount DECIMAL(15, 2) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_user_category (user_id, category_key),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+            $test_pdo->exec($sql_budgets);
+        }
 
         // Insert default admin user: admin@hassala.com
         $stmt_check_user = $test_pdo->prepare("SELECT id FROM users WHERE email = ?");
@@ -447,6 +567,7 @@ if ($route === 'install') {
         // Save to db_config.php
         $db_config_code = "<?php\n"
             . "// تم توليد هذا الملف تلقائياً بواسطة معالج التثبيت\n"
+            . "define('DB_TYPE', '" . addslashes($db_type) . "');\n"
             . "define('DB_HOST', '" . addslashes($host) . "');\n"
             . "define('DB_NAME', '" . addslashes($name) . "');\n"
             . "define('DB_USER', '" . addslashes($user) . "');\n"
@@ -455,8 +576,12 @@ if ($route === 'install') {
         
         file_put_contents(__DIR__ . '/db_config.php', $db_config_code);
 
+        $msg_success = ($db_type === 'sqlite') 
+            ? "تم تهيئة قاعدة البيانات الذكية SQLite وتأسيس جداول الحسابات والمدخرات بنجاح فوري! 🎉" 
+            : "تم تهيئة قاعدة البيانات MySQL وتثبيت جميع جداول الحسابات والمدخرات والـ API بنجاح! 🎉";
+
         echo json_encode([
-            "message" => "تم تهيئة قاعدة البيانات MySQL وتثبيت جميع جداول الحسابات والمدخرات والـ API بنجاح! 🎉"
+            "message" => $msg_success
         ]);
         exit;
 
