@@ -369,11 +369,9 @@ if ($route === 'install') {
     $gemini_key = isset($input_data['geminiApiKey']) ? trim($input_data['geminiApiKey']) : '';
 
     if ($db_type === 'mysql' && (empty($name) || empty($user))) {
-        http_response_code(400);
         echo json_encode(["error" => "جميع الحقول (اسم قاعدة البيانات واسم المستخدم) مطلوبة لتثبيت النظام."]);
         exit;
     } else if ($db_type === 'sqlite' && empty($name)) {
-        http_response_code(400);
         echo json_encode(["error" => "اسم ملف قاعدة البيانات SQLite مطلوب."]);
         exit;
     }
@@ -585,11 +583,12 @@ if ($route === 'install') {
         ]);
         exit;
 
-    } catch (PDOException $e) {
-        http_response_code(500);
+    } catch (Throwable $e) {
         $msg = $e->getMessage();
         if (strpos($msg, 'Unknown database') !== false || strpos($msg, 'Access denied') !== false || strpos($msg, 'Access Denied') !== false) {
             $msg .= "\n\n💡 ملاحظة هامة لـ Hostinger: تتطلب الاستضافة المشتركة إنشاء قاعدة البيانات والارتباط يدوياً أولاً في لوحة التحكم (hPanel) لأسباب أمنية قبل الاتصال بها. يرجى التوجه إلى لوحة تحكم Hostinger -> قواعد البيانات -> وإنشاء قاعدة بيانات جديدة ومستخدم بنفس الأسماء (`{$name}` و `{$user}`)، ثم الضغط على زر التثبيت مجدداً ليقوم التطبيق بإنشاء وتأسيس الجداول بنسبة 100% تلقائياً!";
+        } else if (strpos($msg, 'driver not found') !== false || strpos($msg, 'Could not find driver') !== false) {
+            $msg .= "\n\n💡 نصيحة: يبدو أن ميزة SQLite غير مفعّلة في إعدادات PHP على الاستضافة الخاصة بك. يرجى تفعيل إضافة 'pdo_sqlite' من لوحة تحكم Hostinger (Select PHP Version -> Extensions) أو استخدام قاعدة بيانات MySQL (ربط يدوي) وهي الخيار الأكثر استقراراً وقوة دائماً على الاستضافة المشتركة!";
         }
         echo json_encode(["error" => "فشل تثبيت قاعدة البيانات: " . $msg]);
         exit;

@@ -61,9 +61,15 @@ export default function MySQLInstaller({ isOpen, onClose, onInstallSuccess }: My
         body: JSON.stringify(payload)
       });
 
-      const data = await response.json();
+      let data: any;
+      try {
+        data = await response.json();
+      } catch (jsonErr) {
+        console.error('Failed to parse JSON response:', jsonErr);
+        throw new Error('تلقى التطبيق استجابة غير صالحة من السيرفر. قد يكون هناك جدار حماية يمنع الطلب أو مشكلة في إعدادات PHP الخاصة بالسيرفر. يرجى مراجعة الدعم أو تجربة الربط اليدوي بقاعدة بيانات MySQL.');
+      }
 
-      if (!response.ok) {
+      if (!response.ok || data.error) {
         throw new Error(data.error || 'فشل تثبيت قاعدة البيانات.');
       }
 

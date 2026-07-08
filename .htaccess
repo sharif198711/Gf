@@ -1,15 +1,30 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  RewriteBase /
 
   # 1. Forward any /api/xxx requests to api.php?route=xxx
+  # This works perfectly regardless of whether the app is in root or a subdirectory!
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule ^api/(.*)$ api.php?route=$1 [QSA,L]
 
-  # 2. Support standard SPA React routing fallback
-  RewriteRule ^index\.html$ - [L]
+  # 2. Prevent rewriting if it's direct access to key backend files
+  RewriteRule ^api\.php$ - [L]
+  RewriteRule ^install\.php$ - [L]
+  RewriteRule ^db_config\.php$ - [L]
+  RewriteRule ^.*\.sqlite$ - [L]
+
+  # 3. Serve physical files from dist folder if they exist there
+  # (e.g., assets/index-xxx.js -> dist/assets/index-xxx.js)
+  RewriteCond %{DOCUMENT_ROOT}/$1 -f
+  RewriteRule ^(dist/.*)$ $1 [L]
+
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule . /index.html [L]
+  RewriteCond %{REQUEST_URI} !^/dist/
+  RewriteRule ^(.*)$ dist/$1 [L]
+
+  # 4. Support standard SPA React routing fallback to dist/index.html
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . dist/index.html [L]
 </IfModule>
