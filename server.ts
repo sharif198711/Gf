@@ -10,7 +10,11 @@ import {
   authenticateOrRegister, 
   getUserFinanceState, 
   saveUserFinanceState,
-  resetDbPool
+  resetDbPool,
+  registerUser,
+  loginWithGoogle,
+  adminGetAllUsers,
+  adminDeleteUser
 } from "./src/server/dbService";
 
 dotenv.config();
@@ -313,6 +317,7 @@ app.post("/install.php", async (req, res) => {
       email VARCHAR(255) UNIQUE NOT NULL,
       password VARCHAR(255) NOT NULL,
       bank_balance DECIMAL(15, 2) DEFAULT 0.00,
+      cash_balance DECIMAL(15, 2) DEFAULT 0.00,
       gold_grams DECIMAL(10, 3) DEFAULT 0.000,
       gold_price_per_gram DECIMAL(10, 2) DEFAULT 75.00,
       goal_target DECIMAL(15, 2) DEFAULT 100000.00,
@@ -363,13 +368,15 @@ app.post("/install.php", async (req, res) => {
     let userId;
     if (existingUsers.length === 0) {
       const [insertResult]: any = await connection.query(
-        "INSERT INTO users (email, password, bank_balance, gold_grams, gold_price_per_gram, goal_target, goal_title) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ['admin@hassala.com', hashedPass, 1980.00, 10.000, 75.00, 100000.00, 'توفير مئة ألف يورو']
+        "INSERT INTO users (email, password, bank_balance, cash_balance, gold_grams, gold_price_per_gram, goal_target, goal_title) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ['admin@hassala.com', hashedPass, 1980.00, 500.00, 10.000, 75.00, 100000.00, 'توفير مئة ألف يورو']
       );
       userId = insertResult.insertId;
       logs.push(`✅ تم تسجيل حساب المدير الافتراضي بنجاح (المعرف: ${userId}).`);
     } else {
       userId = existingUsers[0].id;
+      // Make sure existing admin has cash_balance updated to 500.00 if it was 0.00
+      await connection.query("UPDATE users SET cash_balance = 500.00 WHERE id = ? AND (cash_balance IS NULL OR cash_balance = 0.00)", [userId]);
       logs.push(`ℹ️ حساب المدير الافتراضي موجود مسبقاً (المعرف: ${userId}).`);
     }
 
@@ -383,6 +390,7 @@ app.post("/install.php", async (req, res) => {
     };
 
     const sampleTxs = [
+      ['init-0', userId, getDateAgo(11), 'income', 500.00, 'other_income', 'الرصيد النقدي الافتتاحي (كاش)', 'cash', null],
       ['init-1', userId, getDateAgo(10), 'income', 4200.00, 'salary', 'الراتب الشهري الأساسي', 'bank', null],
       ['init-2', userId, getDateAgo(9), 'expense', 1100.00, 'rent', 'إيجار شقة السكن لشهر يونيو', 'bank', null],
       ['init-3', userId, getDateAgo(7), 'expense', 150.00, 'utilities', 'فاتورة الكهرباء والغاز والانترنت والماء', 'bank', null],
@@ -616,6 +624,145 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
+// API endpoint: Register User
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "الرجاء إدخال البريد الإلكتروني وكلمة المرور." });
+    }
+
+    const connected = await isDbConnected();
+    if (!connected) {
+      return res.json({ 
+        isLocalOnly: true, 
+        email, 
+        message: "قاعدة البيانات غير متصلة. تم تشغيل التطبيق في وضع حفظ البيانات المحلي." 
+      });
+    }
+
+    const regResult = await registerUser(email, password);
+    if (!regResult) {
+      return res.status(400).json({ error: "فشل إنشاء الحساب." });
+    }
+
+    const userState = await getUserFinanceState(regResult.userId);
+    res.json({
+      isLocalOnly: false,
+      userId: regResult.userId,
+      email: regResult.email,
+      state: userState,
+      message: "تم إنشاء حسابك الجديد بنجاح! رصيدك وذهبك الحالي صفر لتتمكن من إدخال بياناتك الشخصية."
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "حدث خطأ أثناء تسجيل حساب جديد." });
+  }
+});
+
+// API endpoint: Login/Register with Google Gmail (Simulated popup or exact email flow)
+app.post("/api/auth/google", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: "الرجاء إدخال بريد Gmail الخاص بك." });
+    }
+
+    const connected = await isDbConnected();
+    if (!connected) {
+      return res.json({ 
+        isLocalOnly: true, 
+        email, 
+        message: "قاعدة البيانات غير متصلة. تم تشغيل التطبيق في وضع حفظ البيانات المحلي مع Google." 
+      });
+    }
+
+    const googleResult = await loginWithGoogle(email);
+    if (!googleResult) {
+      return res.status(400).json({ error: "فشل الدخول بواسطة حساب Google." });
+    }
+
+    const userState = await getUserFinanceState(googleResult.userId);
+    res.json({
+      isLocalOnly: false,
+      userId: googleResult.userId,
+      email: googleResult.email,
+      state: userState,
+      message: googleResult.isNew 
+        ? "تم إنشاء حسابك الجديد بواسطة Google بنجاح! رصيدك الحالي وذهبك يبدأ من الصفر." 
+        : "تم تسجيل الدخول بواسطة Google بنجاح وتم مزامنة بياناتك السحابية!"
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "حدث خطأ أثناء تسجيل الدخول بواسطة Google." });
+  }
+});
+
+// API endpoint: Admin - Get all registered users
+app.get("/api/admin/users", async (req, res) => {
+  try {
+    const adminEmail = req.query.adminEmail as string;
+    if (adminEmail !== "admin@hassala.com") {
+      return res.status(403).json({ error: "غير مصرح لك بالولوج للوحة تحكم المدير." });
+    }
+
+    const users = await adminGetAllUsers();
+    res.json({ users });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "حدث خطأ أثناء جلب قائمة المستخدمين." });
+  }
+});
+
+// API endpoint: Admin - Get state of any user
+app.get("/api/admin/user/:id/state", async (req, res) => {
+  try {
+    const adminEmail = req.query.adminEmail as string;
+    if (adminEmail !== "admin@hassala.com") {
+      return res.status(403).json({ error: "غير مصرح لك بالولوج لهذه البيانات." });
+    }
+
+    const userId = Number(req.params.id);
+    const userState = await getUserFinanceState(userId);
+    res.json({ state: userState });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "حدث خطأ أثناء تحميل بيانات المستخدم." });
+  }
+});
+
+// API endpoint: Admin - Update state of any user
+app.post("/api/admin/user/:id/update-state", async (req, res) => {
+  try {
+    const { adminEmail, state } = req.body;
+    if (adminEmail !== "admin@hassala.com") {
+      return res.status(403).json({ error: "غير مصرح لك بالولوج للوحة المدير." });
+    }
+
+    const userId = Number(req.params.id);
+    const success = await saveUserFinanceState(userId, state);
+    res.json({ success, message: "تم حفظ وتعديل بيانات العضو بنجاح بواسطة المدير! ☁️" });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "فشل حفظ وتعديل بيانات العضو." });
+  }
+});
+
+// API endpoint: Admin - Delete any user
+app.delete("/api/admin/user/:id", async (req, res) => {
+  try {
+    const adminEmail = req.query.adminEmail as string;
+    if (adminEmail !== "admin@hassala.com") {
+      return res.status(403).json({ error: "غير مصرح لك بحذف المستخدمين." });
+    }
+
+    const userId = Number(req.params.id);
+    if (userId === 1) {
+      return res.status(400).json({ error: "غير مسموح بحذف حساب المدير الافتراضي." });
+    }
+
+    const success = await adminDeleteUser(userId);
+    res.json({ success, message: "تم حذف حساب العضو وجميع سجلاته المالية بالكامل بنجاح!" });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "حدث خطأ أثناء محاولة حذف العضو." });
+  }
+});
+
 // API endpoint: Save/Sync user financial state
 app.post("/api/sync/save", async (req, res) => {
   try {
@@ -645,6 +792,24 @@ const ai = new GoogleGenAI({
     }
   }
 });
+
+// Robust Helper to execute generateContent with fallback to gemini-3.1-flash-lite if gemini-3.5-flash fails
+async function generateContentWithFallback(params: { model: string; contents: any }) {
+  try {
+    return await ai.models.generateContent(params);
+  } catch (error: any) {
+    console.error(`⚠️ Gemini API call with model ${params.model} failed:`, error.message || error);
+    // If we're already trying the fallback model, throw the error
+    if (params.model === "gemini-3.1-flash-lite") {
+      throw error;
+    }
+    console.info(`🔄 Retrying with fallback model 'gemini-3.1-flash-lite'...`);
+    return await ai.models.generateContent({
+      ...params,
+      model: "gemini-3.1-flash-lite",
+    });
+  }
+}
 
 // API endpoint: Financial Analysis using Gemini
 app.post("/api/ai/analyze", async (req, res) => {
@@ -681,7 +846,7 @@ ${JSON.stringify(transactions.slice(0, 10), null, 2)}
 تأكد من صياغة الإجابة في نظام ماركداون (Markdown) جميل ومنظم مع استخدام أيقونات وجداول ورؤوس واضحة ومبهجة لتسهيل القراءة.
 `;
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithFallback({
       model: "gemini-3.5-flash",
       contents: prompt,
     });
@@ -748,7 +913,7 @@ app.post("/api/ai/chat", async (req, res) => {
       parts: [{ text: message }]
     });
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithFallback({
       model: "gemini-3.5-flash",
       contents: formattedContents,
     });

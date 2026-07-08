@@ -23,6 +23,7 @@ import DeploymentGuide from './components/DeploymentGuide';
 import LandingPage from './components/LandingPage';
 import AiAdvisor from './components/AiAdvisor';
 import SaaSModule from './components/SaaSModule';
+import AdminPanel from './components/AdminPanel';
 
 const LOCAL_STORAGE_KEY = 'gold_savings_tracker_data_v2';
 
@@ -81,6 +82,7 @@ const DEFAULT_APP_DATA: AppData = {
     currentPricePerGram: 75.0 // ~ €75 per gram of 24k gold
   },
   bankBalance: 1980.00, // Starting bank balance (€4200 - €1100 - €150 - €750 - €220)
+  cashBalance: 500.00, // Starting cash balance
   goal: {
     target: 100000,
     title: 'توفير مئة ألف يورو'
@@ -94,12 +96,40 @@ const DEFAULT_APP_DATA: AppData = {
     entertainment: 250,
     gold_buy: 1000,
     other_expense: 300
-  }
+  },
+  customExpenseCategories: [],
+  customIncomeCategories: []
+};
+
+const CLEAN_APP_DATA: AppData = {
+  transactions: [],
+  gold: {
+    grams: 0.0,
+    currentPricePerGram: 75.0
+  },
+  bankBalance: 0.00,
+  cashBalance: 0.00,
+  goal: {
+    target: 100000,
+    title: 'الهدف المالي الشخصي'
+  },
+  categoryBudgets: {
+    rent: 0,
+    groceries: 0,
+    utilities: 0,
+    transportation: 0,
+    health: 0,
+    entertainment: 0,
+    gold_buy: 0,
+    other_expense: 0
+  },
+  customExpenseCategories: [],
+  customIncomeCategories: []
 };
 
 export default function App() {
   const [appData, setAppData] = useState<AppData>(DEFAULT_APP_DATA);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'ledger' | 'analytics' | 'gold' | 'guide' | 'ai' | 'billing'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'ledger' | 'analytics' | 'gold' | 'guide' | 'ai' | 'billing' | 'admin'>('dashboard');
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [userEmail, setUserEmail] = useState<string>('');
   const [dbUserId, setDbUserId] = useState<number | null>(null);
@@ -127,7 +157,10 @@ export default function App() {
       setDbUserId(Number(savedUserId));
     }
 
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const activeEmail = savedEmail || userEmail;
+    const storageKey = activeEmail ? `gold_savings_tracker_data_v2_${activeEmail.toLowerCase().trim()}` : LOCAL_STORAGE_KEY;
+    const saved = localStorage.getItem(storageKey);
+
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -154,13 +187,19 @@ export default function App() {
       } catch (e) {
         console.error('Failed to load local storage state', e);
       }
+    } else {
+      // If no saved state, initialize based on user
+      const initialData = (activeEmail && activeEmail.toLowerCase().trim() === 'admin@hassala.com') ? DEFAULT_APP_DATA : CLEAN_APP_DATA;
+      setAppData(initialData);
     }
-  }, []);
+  }, [userEmail]);
 
   // Save to local storage and sync to MySQL when state changes
-  const saveStateToLocalStorage = (newData: AppData, forceUserId?: number | null) => {
+  const saveStateToLocalStorage = (newData: AppData, forceUserId?: number | null, forceEmail?: string) => {
     setAppData(newData);
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newData));
+    const activeEmail = forceEmail || userEmail;
+    const storageKey = activeEmail ? `gold_savings_tracker_data_v2_${activeEmail.toLowerCase().trim()}` : LOCAL_STORAGE_KEY;
+    localStorage.setItem(storageKey, JSON.stringify(newData));
 
     const activeUserId = forceUserId !== undefined ? forceUserId : dbUserId;
     if (activeUserId) {
@@ -188,10 +227,24 @@ export default function App() {
       setDbUserId(userId);
       localStorage.setItem('gold_savings_user_id', String(userId));
       // Overwrite local state with database state
-      saveStateToLocalStorage(remoteState, userId);
+      saveStateToLocalStorage(remoteState, userId, email);
     } else {
       setDbUserId(null);
       localStorage.removeItem('gold_savings_user_id');
+      // In local mode, load this specific user's local storage data or initialize it!
+      const storageKey = `gold_savings_tracker_data_v2_${email.toLowerCase().trim()}`;
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        try {
+          setAppData(JSON.parse(saved));
+        } catch {
+          const initialData = (email.toLowerCase().trim() === 'admin@hassala.com') ? DEFAULT_APP_DATA : CLEAN_APP_DATA;
+          saveStateToLocalStorage(initialData, null, email);
+        }
+      } else {
+        const initialData = (email.toLowerCase().trim() === 'admin@hassala.com') ? DEFAULT_APP_DATA : CLEAN_APP_DATA;
+        saveStateToLocalStorage(initialData, null, email);
+      }
     }
   };
 
@@ -199,6 +252,7 @@ export default function App() {
     setIsLoggedIn(false);
     setUserEmail('');
     setDbUserId(null);
+    setAppData(DEFAULT_APP_DATA);
     localStorage.removeItem('gold_savings_user_email');
     localStorage.removeItem('gold_savings_user_id');
   };
@@ -208,23 +262,44 @@ export default function App() {
     const id = 'tx-' + Math.random().toString(36).substring(2, 9);
     const transaction: Transaction = { ...newTx, id };
 
-    // Calculate new bank and gold balances
+    // Calculate new bank, cash and gold balances
     let finalBankBalance = appData.bankBalance;
+    let finalCashBalance = appData.cashBalance !== undefined ? appData.cashBalance : 0.00;
     let finalGoldGrams = appData.gold.grams;
 
-    if (transaction.type === 'income') {
+    if (transaction.category === 'transfer_to_bank') {
+      // Transfer Cash -> Bank
+      finalCashBalance -= transaction.amount;
       finalBankBalance += transaction.amount;
-      
-      // If it is selling gold, deduct gold grams
-      if (transaction.category === 'gold_sell' && transaction.goldGrams) {
-        finalGoldGrams = Math.max(0, finalGoldGrams - transaction.goldGrams);
-      }
-    } else {
+    } else if (transaction.category === 'transfer_to_cash') {
+      // Transfer Bank -> Cash
       finalBankBalance -= transaction.amount;
+      finalCashBalance += transaction.amount;
+    } else {
+      // Regular transaction
+      if (transaction.paymentMethod === 'cash') {
+        if (transaction.type === 'income') {
+          finalCashBalance += transaction.amount;
+        } else {
+          finalCashBalance -= transaction.amount;
+        }
+      } else {
+        // Bank-based transaction (card, transfer, gold, etc.)
+        if (transaction.type === 'income') {
+          finalBankBalance += transaction.amount;
+          
+          // If it is selling gold, deduct gold grams
+          if (transaction.category === 'gold_sell' && transaction.goldGrams) {
+            finalGoldGrams = Math.max(0, finalGoldGrams - transaction.goldGrams);
+          }
+        } else {
+          finalBankBalance -= transaction.amount;
 
-      // If it is buying gold, add gold grams
-      if (transaction.category === 'gold_buy' && transaction.goldGrams) {
-        finalGoldGrams += transaction.goldGrams;
+          // If it is buying gold, add gold grams
+          if (transaction.category === 'gold_buy' && transaction.goldGrams) {
+            finalGoldGrams += transaction.goldGrams;
+          }
+        }
       }
     }
 
@@ -232,6 +307,7 @@ export default function App() {
       ...appData,
       transactions: [transaction, ...appData.transactions],
       bankBalance: finalBankBalance,
+      cashBalance: finalCashBalance,
       gold: {
         ...appData.gold,
         grams: finalGoldGrams
@@ -247,22 +323,43 @@ export default function App() {
     if (!txToDelete) return;
 
     let finalBankBalance = appData.bankBalance;
+    let finalCashBalance = appData.cashBalance !== undefined ? appData.cashBalance : 0.00;
     let finalGoldGrams = appData.gold.grams;
 
-    // Reverse the transactions effects
-    if (txToDelete.type === 'income') {
+    // Reverse the transaction effects
+    if (txToDelete.category === 'transfer_to_bank') {
+      // Revert Cash -> Bank
+      finalCashBalance += txToDelete.amount;
       finalBankBalance -= txToDelete.amount;
-
-      // If it was selling gold, add back the grams to inventory
-      if (txToDelete.category === 'gold_sell' && txToDelete.goldGrams) {
-        finalGoldGrams += txToDelete.goldGrams;
-      }
-    } else {
+    } else if (txToDelete.category === 'transfer_to_cash') {
+      // Revert Bank -> Cash
       finalBankBalance += txToDelete.amount;
+      finalCashBalance -= txToDelete.amount;
+    } else {
+      // Regular transaction
+      if (txToDelete.paymentMethod === 'cash') {
+        if (txToDelete.type === 'income') {
+          finalCashBalance -= txToDelete.amount;
+        } else {
+          finalCashBalance += txToDelete.amount;
+        }
+      } else {
+        // Bank transaction
+        if (txToDelete.type === 'income') {
+          finalBankBalance -= txToDelete.amount;
 
-      // If it was buying gold, deduct the grams from inventory
-      if (txToDelete.category === 'gold_buy' && txToDelete.goldGrams) {
-        finalGoldGrams = Math.max(0, finalGoldGrams - txToDelete.goldGrams);
+          // If it was selling gold, add back the grams to inventory
+          if (txToDelete.category === 'gold_sell' && txToDelete.goldGrams) {
+            finalGoldGrams += txToDelete.goldGrams;
+          }
+        } else {
+          finalBankBalance += txToDelete.amount;
+
+          // If it was buying gold, deduct the grams from inventory
+          if (txToDelete.category === 'gold_buy' && txToDelete.goldGrams) {
+            finalGoldGrams = Math.max(0, finalGoldGrams - txToDelete.goldGrams);
+          }
+        }
       }
     }
 
@@ -270,6 +367,7 @@ export default function App() {
       ...appData,
       transactions: appData.transactions.filter(t => t.id !== id),
       bankBalance: finalBankBalance,
+      cashBalance: finalCashBalance,
       gold: {
         ...appData.gold,
         grams: finalGoldGrams
@@ -283,6 +381,14 @@ export default function App() {
     const updated = {
       ...appData,
       bankBalance: newBalance
+    };
+    saveStateToLocalStorage(updated);
+  };
+
+  const handleSetCashBalance = (newBalance: number) => {
+    const updated = {
+      ...appData,
+      cashBalance: newBalance
     };
     saveStateToLocalStorage(updated);
   };
@@ -329,6 +435,62 @@ export default function App() {
     saveStateToLocalStorage(updated);
   };
 
+  const handleUpdateGoal = (target: number, title: string) => {
+    const updated = {
+      ...appData,
+      goal: {
+        target,
+        title
+      }
+    };
+    saveStateToLocalStorage(updated);
+  };
+
+  const handleAddCustomCategory = (name: string, type: 'income' | 'expense' = 'expense') => {
+    const id = 'custom_' + Math.random().toString(36).substring(2, 9);
+    const newCategory = {
+      id,
+      name,
+      color: type === 'expense' ? 'bg-indigo-50 text-indigo-700' : 'bg-emerald-50 text-emerald-700'
+    };
+    const updated = {
+      ...appData,
+      customExpenseCategories: type === 'expense'
+        ? [...(appData.customExpenseCategories || []), newCategory]
+        : (appData.customExpenseCategories || []),
+      customIncomeCategories: type === 'income'
+        ? [...(appData.customIncomeCategories || []), newCategory]
+        : (appData.customIncomeCategories || [])
+    };
+    saveStateToLocalStorage(updated);
+  };
+
+  const handleEditCustomCategory = (id: string, newName: string, type: 'income' | 'expense') => {
+    const updated = {
+      ...appData,
+      customExpenseCategories: type === 'expense'
+        ? (appData.customExpenseCategories || []).map(cat => cat.id === id ? { ...cat, name: newName } : cat)
+        : (appData.customExpenseCategories || []),
+      customIncomeCategories: type === 'income'
+        ? (appData.customIncomeCategories || []).map(cat => cat.id === id ? { ...cat, name: newName } : cat)
+        : (appData.customIncomeCategories || [])
+    };
+    saveStateToLocalStorage(updated);
+  };
+
+  const handleDeleteCustomCategory = (id: string, type: 'income' | 'expense') => {
+    const updated = {
+      ...appData,
+      customExpenseCategories: type === 'expense'
+        ? (appData.customExpenseCategories || []).filter(cat => cat.id !== id)
+        : (appData.customExpenseCategories || []),
+      customIncomeCategories: type === 'income'
+        ? (appData.customIncomeCategories || []).filter(cat => cat.id !== id)
+        : (appData.customIncomeCategories || [])
+    };
+    saveStateToLocalStorage(updated);
+  };
+
   const handleImportBackup = (importedData: AppData) => {
     saveStateToLocalStorage(importedData);
   };
@@ -338,7 +500,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col md:flex-row-reverse font-sans" dir="rtl">
+    <div className="min-h-screen max-w-full overflow-x-hidden bg-[#F8FAFC] text-slate-800 flex flex-col md:flex-row-reverse font-sans" dir="rtl">
       
       {/* Sidebar - Visible on Desktop, Hidden on Mobile */}
       <aside className="hidden md:flex w-72 bg-[#0F172A] text-white flex-col shrink-0 border-l border-slate-800">
@@ -448,13 +610,27 @@ export default function App() {
             onClick={() => setActiveTab('billing')}
             className={`w-full px-4 py-3.5 rounded-xl font-bold text-xs transition-all flex items-center gap-3 ${
               activeTab === 'billing'
-                ? 'bg-amber-600 text-white shadow-md shadow-amber-600/15 border-r-4 border-amber-400'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/15 border-r-4 border-blue-400'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
             }`}
           >
             <Award className="w-4 h-4 text-amber-400 animate-pulse" />
-            الاشتراك وتصدير PDF 👑
+            منشئ التقارير وتصدير PDF 📄
           </button>
+
+          {userEmail === 'admin@hassala.com' && (
+            <button
+              onClick={() => setActiveTab('admin')}
+              className={`w-full px-4 py-3.5 rounded-xl font-bold text-xs transition-all flex items-center gap-3 ${
+                activeTab === 'admin'
+                  ? 'bg-orange-600 text-white shadow-md shadow-orange-600/15 border-r-4 border-orange-400'
+                  : 'text-orange-400 hover:text-white hover:bg-orange-950/20 border border-dashed border-orange-500/20'
+              }`}
+            >
+              <User className="w-4 h-4 text-orange-500 animate-pulse" />
+              لوحة تحكم المدير 👑
+            </button>
+          )}
 
           <button
             onClick={handleLogout}
@@ -469,12 +645,12 @@ export default function App() {
         <div className="p-6 border-t border-slate-800 bg-[#0B1222] space-y-2">
           <div className="flex justify-between text-[11px] text-slate-400 font-medium">
             <span>نسبة إنجاز الهدف (€100K)</span>
-            <span className="font-mono text-amber-400">{(((appData.bankBalance + (appData.gold.grams * appData.gold.currentPricePerGram)) / appData.goal.target) * 100).toFixed(1)}%</span>
+            <span className="font-mono text-amber-400">{(((appData.bankBalance + (appData.cashBalance !== undefined ? appData.cashBalance : 0.00) + (appData.gold.grams * appData.gold.currentPricePerGram)) / appData.goal.target) * 100).toFixed(1)}%</span>
           </div>
           <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
             <div 
               className="bg-amber-500 h-full rounded-full" 
-              style={{ width: `${Math.min(100, (((appData.bankBalance + (appData.gold.grams * appData.gold.currentPricePerGram)) / appData.goal.target) * 100))}%` }} 
+              style={{ width: `${Math.min(100, (((appData.bankBalance + (appData.cashBalance !== undefined ? appData.cashBalance : 0.00) + (appData.gold.grams * appData.gold.currentPricePerGram)) / appData.goal.target) * 100))}%` }} 
             />
           </div>
           <p className="text-[10px] text-slate-500 text-center font-sans mt-2">نظام الإدارة المالية الشخصي v2.4</p>
@@ -482,20 +658,20 @@ export default function App() {
       </aside>
 
       {/* Main Column */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 max-w-full overflow-x-hidden">
         
         {/* Mobile Header and Compact Nav */}
-        <header className="md:hidden bg-[#0F172A] text-white p-4 flex flex-col gap-3">
+        <header className="md:hidden bg-[#0F172A] text-white p-3.5 sm:p-4.5 flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Coins className="w-5 h-5 text-amber-500" />
               <h1 className="font-bold text-sm">حصّالة الذهب والادخار</h1>
             </div>
             <span className="text-[10px] bg-slate-800 px-2 py-1 rounded font-mono text-amber-400">
-              هدف €100K: {(((appData.bankBalance + (appData.gold.grams * appData.gold.currentPricePerGram)) / appData.goal.target) * 100).toFixed(1)}%
+              هدف €100K: {(((appData.bankBalance + (appData.cashBalance !== undefined ? appData.cashBalance : 0.00) + (appData.gold.grams * appData.gold.currentPricePerGram)) / appData.goal.target) * 100).toFixed(1)}%
             </span>
           </div>
-          <nav className="flex gap-1 overflow-x-auto pb-1 scrollbar-none text-[11px]">
+          <nav className="flex flex-nowrap whitespace-nowrap gap-1.5 overflow-x-auto pb-1.5 scrollbar-none text-[11px] touch-pan-x select-none w-full">
             <button
               onClick={() => setActiveTab('dashboard')}
               className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-slate-400 bg-slate-900'}`}
@@ -528,10 +704,18 @@ export default function App() {
             </button>
             <button
               onClick={() => setActiveTab('billing')}
-              className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${activeTab === 'billing' ? 'bg-amber-600 text-white' : 'text-slate-400 bg-slate-900'}`}
+              className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${activeTab === 'billing' ? 'bg-blue-600 text-white' : 'text-slate-400 bg-slate-900'}`}
             >
-              الاشتراك والـ PDF 👑
+              منشئ التقارير والـ PDF 📄
             </button>
+            {userEmail === 'admin@hassala.com' && (
+              <button
+                onClick={() => setActiveTab('admin')}
+                className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${activeTab === 'admin' ? 'bg-orange-600 text-white' : 'text-orange-400 bg-orange-950/40 border border-orange-500/20'}`}
+              >
+                المدير 👑
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('guide')}
               className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${activeTab === 'guide' ? 'bg-blue-600 text-white' : 'text-slate-400 bg-slate-900'}`}
@@ -564,29 +748,34 @@ export default function App() {
         </div>
 
         {/* Real-time Status ribbon */}
-        <div className="bg-blue-50 border-b border-blue-100 py-2 px-6 md:px-12 flex justify-between items-center text-[11px] text-blue-900">
-          <div className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping" />
-            <span>نظام حساباتي الشخصية مفعّل • حساب سائل البنك والذهب باليورو بدقة كاملة</span>
+        <div className="bg-blue-50 border-b border-blue-100 py-2.5 px-4 md:px-12 flex flex-col sm:flex-row justify-between items-center text-[11px] text-blue-900 gap-2 text-center sm:text-right">
+          <div className="flex items-center justify-center gap-2 flex-wrap">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping shrink-0" />
+            <span className="break-words whitespace-normal text-slate-700 font-medium">نظام حساباتي الشخصية مفعّل • حساب سائل البنك، الكاش والذهب باليورو بدقة كاملة</span>
           </div>
-          <span className="font-mono text-blue-700 bg-blue-100/60 px-2 py-0.5 rounded font-semibold">
-            صافي الثروة الحالي: €{(appData.bankBalance + (appData.gold.grams * appData.gold.currentPricePerGram)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <span className="font-mono text-blue-700 bg-blue-100/60 px-2.5 py-1 rounded font-bold shrink-0 break-all">
+            صافي الثروة الحالي: €{(appData.bankBalance + (appData.cashBalance !== undefined ? appData.cashBalance : 0.00) + (appData.gold.grams * appData.gold.currentPricePerGram)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
         </div>
 
         {/* Main Workspace content */}
-        <main className="flex-1 overflow-y-auto p-6 md:p-10 max-w-7xl w-full mx-auto">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-10 max-w-7xl w-full mx-auto">
           {activeTab === 'dashboard' && (
             <Dashboard
               transactions={appData.transactions}
               gold={appData.gold}
               bankBalance={appData.bankBalance}
+              cashBalance={appData.cashBalance !== undefined ? appData.cashBalance : 0.00}
               goal={appData.goal}
               setBankBalance={handleSetBankBalance}
+              setCashBalance={handleSetCashBalance}
               updateGoldPrice={handleUpdateGoldPrice}
               updateGoldGrams={handleUpdateGoldGrams}
               categoryBudgets={appData.categoryBudgets || {}}
               onUpdateCategoryBudget={handleUpdateCategoryBudgets}
+              customCategories={appData.customExpenseCategories || []}
+              onUpdateGoal={handleUpdateGoal}
+              onAddTransaction={handleAddTransaction}
             />
           )}
 
@@ -596,6 +785,11 @@ export default function App() {
               gold={appData.gold}
               onAddTransaction={handleAddTransaction}
               onDeleteTransaction={handleDeleteTransaction}
+              customCategories={appData.customExpenseCategories || []}
+              customIncomeCategories={appData.customIncomeCategories || []}
+              onAddCustomCategory={handleAddCustomCategory}
+              onEditCustomCategory={handleEditCustomCategory}
+              onDeleteCustomCategory={handleDeleteCustomCategory}
             />
           )}
 
@@ -604,6 +798,8 @@ export default function App() {
               transactions={appData.transactions}
               isPremium={appData.premiumTier !== undefined && appData.premiumTier !== 'free'}
               onGoToBilling={() => setActiveTab('billing')}
+              customCategories={appData.customExpenseCategories || []}
+              customIncomeCategories={appData.customIncomeCategories || []}
             />
           )}
 
@@ -636,6 +832,10 @@ export default function App() {
             <AiAdvisor
               appData={appData}
             />
+          )}
+
+          {activeTab === 'admin' && userEmail === 'admin@hassala.com' && (
+            <AdminPanel adminEmail={userEmail} />
           )}
         </main>
 

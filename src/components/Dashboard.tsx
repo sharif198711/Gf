@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -15,7 +15,13 @@ import {
   Trophy,
   Sparkles,
   Award,
-  X
+  X,
+  Bell,
+  ArrowRightLeft,
+  ChevronDown,
+  ChevronUp,
+  Percent,
+  Edit2
 } from 'lucide-react';
 import { Transaction, GoldState, SavingsGoal } from '../types';
 
@@ -23,12 +29,17 @@ interface DashboardProps {
   transactions: Transaction[];
   gold: GoldState;
   bankBalance: number;
+  cashBalance: number;
   goal: SavingsGoal;
   categoryBudgets: { [categoryKey: string]: number };
   setBankBalance: (balance: number) => void;
+  setCashBalance: (balance: number) => void;
   updateGoldPrice: (price: number) => void;
   updateGoldGrams: (grams: number) => void;
   onUpdateCategoryBudget: (category: string, limit: number) => void;
+  customCategories?: { id: string; name: string; color: string }[];
+  onUpdateGoal?: (target: number, title: string) => void;
+  onAddTransaction?: (transaction: Omit<Transaction, 'id'>) => void;
 }
 
 const EXPENSE_CATEGORIES_AR: { [key: string]: { name: string; icon: string; color: string } } = {
@@ -46,31 +57,60 @@ export default function Dashboard({
   transactions,
   gold,
   bankBalance,
+  cashBalance,
   goal,
   categoryBudgets,
   setBankBalance,
+  setCashBalance,
   updateGoldPrice,
   updateGoldGrams,
-  onUpdateCategoryBudget
+  onUpdateCategoryBudget,
+  customCategories = [],
+  onUpdateGoal,
+  onAddTransaction
 }: DashboardProps) {
-  const [isEditingBalance, setIsEditingBalance] = useState(false);
-  const [tempBalance, setTempBalance] = useState(bankBalance.toString());
-  const [isEditingGoldPrice, setIsEditingGoldPrice] = useState(false);
-  const [tempGoldPrice, setTempGoldPrice] = useState(gold.currentPricePerGram.toString());
-  const [isEditingGoldGrams, setIsEditingGoldGrams] = useState(false);
-  const [tempGoldGrams, setTempGoldGrams] = useState(gold.grams.toString());
+  // Editing modes
+  const [editingField, setEditingField] = useState<'bank' | 'cash' | 'goldPrice' | 'goldGrams' | 'goal' | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [editTitle, setEditTitle] = useState('');
+
+  // Notifications and alerts
   const [dismissedMilestones, setDismissedMilestones] = useState<number[]>([]);
+  const [dismissedEncouragements, setDismissedEncouragements] = useState<number[]>([]);
+  const [showAllEncouragements, setShowAllEncouragements] = useState(false);
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState<string>('');
   const [dismissedAlerts, setDismissedAlerts] = useState<string[]>([]);
+
+  // Money Transfer states
+  const [showTransferForm, setShowTransferForm] = useState(false);
+  const [transferType, setTransferType] = useState<'cash_to_bank' | 'bank_to_cash'>('cash_to_bank');
+  const [transferAmount, setTransferAmount] = useState('');
+  const [transferDescription, setTransferDescription] = useState('');
+  const [transferError, setTransferError] = useState('');
+  const [transferSuccess, setTransferSuccess] = useState('');
+
+  // Combined expense categories map (including custom categories)
+  const allExpenseCategoriesMap: { [key: string]: { name: string; icon: string; color: string } } = {
+    ...EXPENSE_CATEGORIES_AR,
+  };
+  
+  if (customCategories && customCategories.length > 0) {
+    customCategories.forEach(cat => {
+      allExpenseCategoriesMap[cat.id] = {
+        name: cat.name,
+        icon: '🏷️',
+        color: 'from-indigo-400 to-purple-500'
+      };
+    });
+  }
   
   // Calculate financial metrics
   const totalGoldValue = gold.grams * gold.currentPricePerGram;
-  const totalNetWorth = bankBalance + totalGoldValue;
+  const totalNetWorth = bankBalance + (cashBalance !== undefined ? cashBalance : 0.00) + totalGoldValue;
   
   // Current month's income and expenses
   const currentMonthStr = new Date().toISOString().substring(0, 7); // YYYY-MM
-  
   const currentMonthTransactions = transactions.filter(t => t.date.startsWith(currentMonthStr));
   
   const monthlyIncome = currentMonthTransactions
@@ -106,7 +146,7 @@ export default function Dashboard({
   
   const averageMonthlySavings = monthsWithData.length > 0 
     ? totalHistoricalSavings / monthsWithData.length 
-    : currentMonthSavings > 0 ? currentMonthSavings : 300; // fallback default to €300/month if no data
+    : currentMonthSavings > 0 ? currentMonthSavings : 300;
 
   // Goal tracking
   const remainingToGoal = Math.max(0, goal.target - totalNetWorth);
@@ -124,16 +164,72 @@ export default function Dashboard({
   const latestAchieved = achievedMilestones.length > 0 ? achievedMilestones[achievedMilestones.length - 1] : null;
   const showToast = latestAchieved && !dismissedMilestones.includes(latestAchieved.percentage);
 
-  // Group current month's expenses by category
+  // Dynamic encouragement list based on progress towards current goal target
+  const encouragementsList = [
+    {
+      percentage: 25,
+      title: 'الربع الأول: 25%',
+      isAchieved: progressPercentage >= 25,
+      isClose: progressPercentage >= 20 && progressPercentage < 25,
+      message: progressPercentage >= 25
+        ? `تهانينا الحارة! لقد تجاوزت الـ 25% من هدفك المالي البالغ ${goal.target.toLocaleString()} يورو. ربع الطريق تم اجتيازه بكل قوة وثبات!`
+        : progressPercentage >= 20
+        ? `أنت قريب جداً! يفصلك القليل لملامسة ربع هدفك المالي البالغ ${goal.target.toLocaleString()} يورو (أنت الآن في نسبة ${progressPercentage.toFixed(1)}%). واصل بهمتك العالية!`
+        : `هدف الـ 25% (€${(goal.target * 0.25).toLocaleString()}) هو خطوتك الأولى العظيمة. كل معاملة ادخار تقربك أكثر!`,
+      statusText: progressPercentage >= 25 ? 'تم الإنجاز 🎉' : progressPercentage >= 20 ? 'قريب جداً ⚡' : 'قيد السعي 🏁',
+      statusColor: progressPercentage >= 25 
+        ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' 
+        : progressPercentage >= 20 
+        ? 'bg-amber-500/10 text-amber-600 border-amber-500/20 animate-pulse' 
+        : 'bg-slate-100 text-slate-500 border-slate-200'
+    },
+    {
+      percentage: 50,
+      title: 'منتصف الطريق: 50%',
+      isAchieved: progressPercentage >= 50,
+      isClose: progressPercentage >= 45 && progressPercentage < 50,
+      message: progressPercentage >= 50
+        ? `إنجاز رائع ومتميز! رصيدك يغطي الآن نصف هدفك المالي تماماً (€${(goal.target * 0.5).toLocaleString()}). لقد اجتزت نصف الرحلة بجدارة!`
+        : progressPercentage >= 45
+        ? `أنت على وشك الوصول لنصف الطريق المالي الماسي (أنت في نسبة ${progressPercentage.toFixed(1)}%). بضع مدخرات إضافية وتغزو حاجز الـ 50%!`
+        : `توفير نصف المبلغ المالي المستهدف (€${(goal.target * 0.5).toLocaleString()}) سيمنحك حافزاً هائلاً. واصل بناء مدخراتك الذكية!`,
+      statusText: progressPercentage >= 50 ? 'تم الإنجاز 🎉' : progressPercentage >= 45 ? 'قريب جداً ⚡' : 'قيد السعي 🏁',
+      statusColor: progressPercentage >= 50 
+        ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' 
+        : progressPercentage >= 45 
+        ? 'bg-amber-500/10 text-amber-600 border-amber-500/20 animate-pulse' 
+        : 'bg-slate-100 text-slate-500 border-slate-200'
+    },
+    {
+      percentage: 75,
+      title: 'على مشارف الانتهاء: 75%',
+      isAchieved: progressPercentage >= 75,
+      isClose: progressPercentage >= 70 && progressPercentage < 75,
+      message: progressPercentage >= 75
+        ? `مذهل بحق! لقد قهرت 75% من هدفك المالي البالغ ${goal.target.toLocaleString()} يورو. الحرية المالية والاستقلال التام أصبحت على بعد أمتار قليلة!`
+        : progressPercentage >= 70
+        ? `نجاح باهر قريب! أنت في نسبة ${progressPercentage.toFixed(1)}% وعلى وشك تخطي حاجز الـ 75%. واصل الصعود نحو القمة مكللاً بالنجاح!`
+        : `بلوغ نسبة الـ 75% (€${(goal.target * 0.75).toLocaleString()}) يضعك في مصاف المخططين الماليين العباقرة. استمر بالتقدم المبدع!`,
+      statusText: progressPercentage >= 75 ? 'تم الإنجاز 🎉' : progressPercentage >= 70 ? 'قريب جداً ⚡' : 'قيد السعي 🏁',
+      statusColor: progressPercentage >= 75 
+        ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' 
+        : progressPercentage >= 70 
+        ? 'bg-amber-500/10 text-amber-600 border-amber-500/20 animate-pulse' 
+        : 'bg-slate-100 text-slate-500 border-slate-200'
+    }
+  ];
+
+  const activeEncouragementAlerts = encouragementsList.filter(
+    e => (e.isClose || e.isAchieved) && !dismissedEncouragements.includes(e.percentage)
+  );
+
   const currentMonthExpensesByCategory: { [key: string]: number } = {};
   currentMonthTransactions
     .filter(t => t.type === 'expense')
     .forEach(t => {
-      const cat = t.category;
-      currentMonthExpensesByCategory[cat] = (currentMonthExpensesByCategory[cat] || 0) + t.amount;
+      currentMonthExpensesByCategory[t.category] = (currentMonthExpensesByCategory[t.category] || 0) + t.amount;
     });
 
-  // Calculate active budget alerts
   const activeBudgetAlerts = Object.keys(EXPENSE_CATEGORIES_AR)
     .map(key => {
       const spent = currentMonthExpensesByCategory[key] || 0;
@@ -166,114 +262,200 @@ export default function Dashboard({
     setEditingValue(currentLimit.toString());
   };
 
-  // Time to reach goal estimation
-  // We use average monthly savings, or current month's if it's higher, or a minimum of €50 to prevent division by zero/negative
   const monthlySavingsForCalculation = averageMonthlySavings > 50 ? averageMonthlySavings : 150;
   const monthsToGoal = remainingToGoal / monthlySavingsForCalculation;
   const yearsToGoal = Math.floor(monthsToGoal / 12);
   const remainingMonthsToGoal = Math.ceil(monthsToGoal % 12);
 
-  const handleSaveBalance = () => {
-    const parsed = parseFloat(tempBalance);
-    if (!isNaN(parsed) && parsed >= 0) {
+  const handleSaveField = () => {
+    const parsed = parseFloat(editValue);
+    if (isNaN(parsed) || parsed < 0) return;
+
+    if (editingField === 'bank') {
       setBankBalance(parsed);
-      setIsEditingBalance(false);
-    }
-  };
-
-  const handleSaveGoldPrice = () => {
-    const parsed = parseFloat(tempGoldPrice);
-    if (!isNaN(parsed) && parsed > 0) {
+    } else if (editingField === 'cash') {
+      setCashBalance(parsed);
+    } else if (editingField === 'goldPrice' && parsed > 0) {
       updateGoldPrice(parsed);
-      setIsEditingGoldPrice(false);
+    } else if (editingField === 'goldGrams') {
+      updateGoldGrams(parsed);
+    } else if (editingField === 'goal' && parsed > 0 && onUpdateGoal) {
+      onUpdateGoal(parsed, editTitle);
     }
+
+    setEditingField(null);
   };
 
-  const handleSaveGoldGrams = () => {
-    const parsed = parseFloat(tempGoldGrams);
-    if (!isNaN(parsed) && parsed >= 0) {
-      updateGoldGrams(parsed);
-      setIsEditingGoldGrams(false);
+  const openEditField = (field: 'bank' | 'cash' | 'goldPrice' | 'goldGrams' | 'goal', initialVal: number, title?: string) => {
+    setEditingField(field);
+    setEditValue(initialVal.toString());
+    setEditTitle(title || '');
+  };
+
+  const handleExecuteTransfer = (e: React.FormEvent) => {
+    e.preventDefault();
+    setTransferError('');
+    setTransferSuccess('');
+
+    const amount = parseFloat(transferAmount);
+    if (isNaN(amount) || amount <= 0) {
+      setTransferError('الرجاء إدخال مبلغ صحيح أكبر من الصفر.');
+      return;
+    }
+
+    if (transferType === 'cash_to_bank' && amount > cashBalance) {
+      setTransferError('عذراً، رصيد الكاش المتوفر لديك غير كافٍ لإتمام هذا التحويل.');
+      return;
+    }
+
+    if (transferType === 'bank_to_cash' && amount > bankBalance) {
+      setTransferError('عذراً، رصيد الحساب البنكي المتوفر لديك غير كافٍ لإتمام هذا التحويل.');
+      return;
+    }
+
+    if (onAddTransaction) {
+      onAddTransaction({
+        date: new Date().toISOString().substring(0, 10),
+        type: transferType === 'cash_to_bank' ? 'expense' : 'income',
+        amount: amount,
+        category: transferType === 'cash_to_bank' ? 'transfer_to_bank' : 'transfer_to_cash',
+        description: transferDescription.trim() || (transferType === 'cash_to_bank' ? 'تحويل من الكاش إلى حساب البنك' : 'تحويل من حساب البنك إلى الكاش'),
+        paymentMethod: transferType === 'cash_to_bank' ? 'cash' : 'transfer',
+        account: transferType === 'cash_to_bank' ? 'bank' : 'cash'
+      });
+
+      setTransferSuccess('تم التحويل بنجاح وتحديث الأرصدة تلقائياً!');
+      setTransferAmount('');
+      setTransferDescription('');
+      setTimeout(() => {
+        setTransferSuccess('');
+        setShowTransferForm(false);
+      }, 2000);
+    } else {
+      setTransferError('حدث خطأ في النظام، يرجى المحاولة لاحقاً.');
     }
   };
 
   return (
-    <div className="space-y-8" dir="rtl">
-      {/* Header and Quick Stats */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-gray-100 pb-5">
+    <div className="space-y-6 text-slate-800" dir="rtl">
+      {/* Top Welcome Header with Glass capsule */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-white/70 backdrop-blur-md p-6 rounded-3xl border border-slate-100/80 shadow-xs">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">نظرة عامة على ميزانيتك</h1>
-          <p className="text-gray-500 mt-1 font-sans text-sm">أهلاً بك في لوحة تحكمك المالية. تتبع صافي ثروتك وتقدمك نحو هدفك المالي.</p>
+          <span className="text-[10px] uppercase tracking-wider text-indigo-600 font-black px-2.5 py-1 bg-indigo-50 rounded-full">اللوحة الذكية</span>
+          <h1 className="text-2xl font-black text-slate-900 mt-2">نظرة عامة على ميزانيتك</h1>
+          <p className="text-xs text-slate-500 font-sans mt-0.5">تتبع صافي ثروتك، مقتنياتك من الذهب، الميزانيات، ونسب الادخار بدقة وبساطة.</p>
         </div>
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-3">
-          <div className="p-2.5 bg-amber-500 text-white rounded-xl">
-            <Coins className="w-5 h-5" />
+        
+        {/* Sleek Gold badge card */}
+        <div className="bg-amber-500/5 hover:bg-amber-500/10 border border-amber-200/50 rounded-2xl p-3.5 flex items-center gap-3 transition-colors cursor-pointer"
+             onClick={() => openEditField('goldPrice', gold.currentPricePerGram)}>
+          <div className="p-2.5 bg-amber-500 text-white rounded-xl shadow-xs">
+            <Coins className="w-5 h-5 animate-pulse" />
           </div>
           <div>
-            <div className="text-xs text-amber-800 font-medium">سعر جرام الذهب عيار 24 اليوم (EUR)</div>
+            <div className="text-[10px] text-amber-800/80 font-black">سعر جرام الذهب عيار 24 اليوم</div>
             <div className="flex items-center gap-2 mt-0.5">
-              {isEditingGoldPrice ? (
-                <div className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    value={tempGoldPrice}
-                    onChange={(e) => setTempGoldPrice(e.target.value)}
-                    className="w-20 px-2 py-0.5 text-xs border border-amber-300 rounded focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white"
-                    step="0.01"
-                  />
-                  <button onClick={handleSaveGoldPrice} className="text-xs bg-amber-600 text-white px-2 py-0.5 rounded hover:bg-amber-700 font-medium">حفظ</button>
-                </div>
-              ) : (
-                <>
-                  <span className="font-mono font-bold text-amber-900 text-lg">€{gold.currentPricePerGram.toLocaleString()}</span>
-                  <button onClick={() => setIsEditingGoldPrice(true)} className="text-xs text-amber-700 underline hover:text-amber-900">تعديل</button>
-                </>
-              )}
+              <span className="font-mono font-black text-amber-950 text-base">€{gold.currentPricePerGram.toLocaleString()}</span>
+              <span className="text-[10px] text-amber-700 bg-amber-100/50 px-1.5 py-0.5 rounded font-bold">تعديل</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Toast Notification for Milestone Achievements */}
+      {/* Pop-up Edit modal for inline updates */}
+      <AnimatePresence>
+        {editingField && (
+          <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl shadow-xl border border-slate-100 p-6 max-w-sm w-full text-right space-y-4"
+            >
+              <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                <span className="font-bold text-slate-900 text-sm">
+                  {editingField === 'bank' && 'تعديل الرصيد البنكي'}
+                  {editingField === 'cash' && 'تعديل رصيد الكاش'}
+                  {editingField === 'goldPrice' && 'تعديل سعر الذهب (يورو / جرام)'}
+                  {editingField === 'goldGrams' && 'تعديل جرامات الذهب الحالية'}
+                  {editingField === 'goal' && 'تعديل الهدف المالي المستهدف'}
+                </span>
+                <button onClick={() => setEditingField(null)} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {editingField === 'goal' && (
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-500">اسم الهدف</label>
+                  <input
+                    type="text"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    placeholder="توفير ميزانية معينة"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-xs text-slate-500">القيمة الجديدة</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-base font-mono font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-left"
+                />
+              </div>
+
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  onClick={() => setEditingField(null)}
+                  className="flex-1 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+                >
+                  إلغاء
+                </button>
+                <button
+                  onClick={handleSaveField}
+                  className="flex-1 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+                >
+                  تأكيد وحفظ
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Dynamic Milestones achieved celebration toast */}
       {showToast && latestAchieved && (
         <motion.div
-          initial={{ opacity: 0, y: -20, scale: 0.95 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          className="bg-gradient-to-r from-indigo-900 via-slate-900 to-indigo-950 text-white p-5 rounded-3xl border border-indigo-500/30 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4 relative overflow-hidden"
+          initial={{ opacity: 0, y: -15 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white p-5 rounded-3xl border border-indigo-500/20 shadow-lg flex flex-col md:flex-row items-center justify-between gap-4 relative overflow-hidden"
         >
-          {/* Subtle background glow */}
           <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
-          
           <div className="flex items-center gap-4 relative z-10">
             <div className="p-3 bg-amber-500 text-slate-950 rounded-2xl animate-bounce shrink-0">
-              <Trophy className="w-6 h-6 text-slate-950" />
+              <Trophy className="w-6 h-6" />
             </div>
-            <div className="text-right space-y-1 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs bg-amber-400/20 text-amber-300 font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                  <Sparkles className="w-3 h-3 text-amber-400" />
-                  معلم مالي جديد تم تحقيقه! 🎉
-                </span>
-                <span className="text-[11px] text-indigo-300 font-mono">النسبة المكتملة: {progressPercentage.toFixed(1)}%</span>
-              </div>
+            <div className="text-right space-y-1">
+              <span className="text-[10px] bg-amber-400/20 text-amber-300 font-bold px-2.5 py-0.5 rounded-full inline-block">معلم مالي جديد تم تحقيقه! 🎉</span>
               <h4 className="text-base font-black text-white mt-1">{latestAchieved.label}</h4>
-              <p className="text-xs text-slate-300 font-sans max-w-xl leading-relaxed">{latestAchieved.description}</p>
+              <p className="text-xs text-slate-300 leading-relaxed font-sans max-w-xl">{latestAchieved.description}</p>
             </div>
           </div>
-
-          <div className="flex items-center gap-3 relative z-10 shrink-0">
+          <div className="flex items-center gap-2 relative z-10 shrink-0 w-full md:w-auto">
             <button
-              onClick={() => {
-                alert('🎉 طقوس النجاح المالي: تم توثيق إنجازك بنجاح! استمر في الالتزام والنمو لتبلغ القمة.');
-              }}
-              className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs px-4 py-2.5 rounded-xl transition-all shadow-md shadow-amber-500/10 cursor-pointer"
+              onClick={() => alert('🎉 طقوس النجاح المالي: تم توثيق إنجازك بنجاح! استمر في الالتزام والنمو لتبلغ القمة.')}
+              className="flex-1 md:flex-none bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs px-4 py-2.5 rounded-xl transition-all"
             >
               احتفل بالإنجاز 🥳
             </button>
             <button
               onClick={() => setDismissedMilestones([...dismissedMilestones, latestAchieved.percentage])}
-              className="p-2 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-all cursor-pointer animate-pulse"
-              title="إغلاق التنبيه"
+              className="p-2 hover:bg-white/10 rounded-xl text-slate-400 hover:text-white"
             >
               <X className="w-5 h-5" />
             </button>
@@ -281,47 +463,38 @@ export default function Dashboard({
         </motion.div>
       )}
 
-      {/* Category Budget Overrun Alerts */}
+      {/* Category Budget Alerts */}
       {activeBudgetAlerts.length > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {activeBudgetAlerts.map(alert => (
             <motion.div
               key={alert.key}
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
-              className="bg-rose-50 border border-rose-100 p-4.5 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xs"
+              className="bg-rose-50 border border-rose-100 p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs"
             >
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-rose-500 text-white rounded-xl flex items-center justify-center text-lg shrink-0 animate-pulse">
-                  {alert.icon}
-                </div>
+                <span className="text-xl bg-white p-2 rounded-xl shadow-2xs border border-rose-100">{alert.icon}</span>
                 <div className="text-right">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] bg-rose-100 text-rose-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                      تنبيه تجاوز الميزانية! ⚠️
-                    </span>
-                    <span className="text-[10px] text-rose-500 font-medium font-sans">هذا الشهر</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] bg-rose-100 text-rose-800 font-bold px-2 py-0.5 rounded-full">ميزانية منتهية ⚠️</span>
+                    <span className="text-[10px] text-rose-500 font-sans">هذا الشهر</span>
                   </div>
-                  <p className="text-sm font-black text-rose-950 mt-1">
-                    لقد تخطيت ميزانية <span className="underline">{alert.name}</span> بمقدار <span className="font-mono">€{alert.overage.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>!
-                  </p>
-                  <p className="text-[11px] text-rose-700 font-sans mt-0.5">
-                    الإنفاق الفعلي: <span className="font-semibold font-mono">€{alert.spent.toLocaleString()}</span> من أصل ميزانية مخططة تبلغ <span className="font-semibold font-mono">€{alert.budget.toLocaleString()}</span> ({alert.pct.toFixed(0)}%).
+                  <p className="text-xs font-bold text-rose-950 mt-1">
+                    لقد تجاوزت ميزانية <span className="underline">{alert.name}</span> بمقدار <span className="font-mono">€{alert.overage.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>!
                   </p>
                 </div>
               </div>
-
-              <div className="flex items-center gap-2.5 shrink-0">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => startEditingCategory(alert.key, alert.budget)}
-                  className="bg-white border border-rose-200 hover:bg-rose-100 text-rose-900 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow-2xs"
+                  className="bg-white border border-rose-200 hover:bg-rose-100 text-rose-900 font-bold text-[11px] px-3 py-1.5 rounded-xl transition-colors"
                 >
-                  تعديل ميزانية الفئة ⚙️
+                  تعديل الميزانية
                 </button>
                 <button
                   onClick={() => setDismissedAlerts([...dismissedAlerts, alert.key])}
-                  className="p-1.5 hover:bg-rose-100 rounded-lg text-rose-400 hover:text-rose-800 transition-all cursor-pointer"
-                  title="تجاهل مؤقت"
+                  className="p-1 hover:bg-rose-100 rounded-lg text-rose-400 hover:text-rose-800"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -331,254 +504,274 @@ export default function Dashboard({
         </div>
       )}
 
-      {/* Main Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Card 1: Net Worth */}
-        <motion.div 
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="bg-white p-6 rounded-3xl border border-gray-100 shadow-xs flex flex-col justify-between"
-        >
+      {/* Simplified, Gorgeous Bento Grid for Main Accounts */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {/* Total Net Worth Card (Primary Glassmorphism Accent) */}
+        <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-6 rounded-3xl border border-indigo-500/20 shadow-md flex flex-col justify-between h-48 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
           <div className="flex items-start justify-between">
             <div>
-              <span className="text-xs text-gray-400 font-medium">إجمالي الثروة (صافي الأصول)</span>
-              <h3 className="text-3xl font-mono font-bold text-gray-900 mt-2">€{totalNetWorth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
-            </div>
-            <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl">
-              <PiggyBank className="w-6 h-6" />
-            </div>
-          </div>
-          <div className="border-t border-gray-50 mt-4 pt-3 flex items-center justify-between text-xs text-gray-500">
-            <span>البنك: €{bankBalance.toLocaleString()}</span>
-            <span>الذهب: €{totalGoldValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-          </div>
-        </motion.div>
-
-        {/* Card 2: Bank Balance */}
-        <motion.div 
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-          className="bg-white p-6 rounded-3xl border border-gray-100 shadow-xs flex flex-col justify-between"
-        >
-          <div className="flex items-start justify-between">
-            <div>
-              <span className="text-xs text-gray-400 font-medium">الرصيد البنكي الحالي</span>
-              {isEditingBalance ? (
-                <div className="flex items-center gap-2 mt-2">
-                  <input
-                    type="number"
-                    value={tempBalance}
-                    onChange={(e) => setTempBalance(e.target.value)}
-                    className="w-28 px-2 py-1 border border-gray-200 rounded-lg text-lg font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  <button onClick={handleSaveBalance} className="bg-emerald-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-emerald-700">حفظ</button>
-                  <button onClick={() => setIsEditingBalance(false)} className="text-gray-400 text-xs hover:text-gray-600">إلغاء</button>
-                </div>
-              ) : (
-                <div className="flex items-baseline gap-2 mt-2">
-                  <h3 className="text-3xl font-mono font-bold text-gray-900">€{bankBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
-                  <button onClick={() => { setTempBalance(bankBalance.toString()); setIsEditingBalance(true); }} className="text-xs text-emerald-600 hover:underline">تعديل</button>
-                </div>
-              )}
-            </div>
-            <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
-              <Briefcase className="w-6 h-6" />
-            </div>
-          </div>
-          <div className="border-t border-gray-50 mt-4 pt-3 text-xs text-gray-500 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-            <span>رصيدك النقدي السائل في الحساب البنكي</span>
-          </div>
-        </motion.div>
-
-        {/* Card 3: Gold Holdings */}
-        <motion.div 
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.2 }}
-          className="bg-white p-6 rounded-3xl border border-gray-100 shadow-xs flex flex-col justify-between"
-        >
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <span className="text-xs text-gray-400 font-medium">رصيد الذهب عيار 24</span>
-              {isEditingGoldGrams ? (
-                <div className="flex items-center gap-2 mt-2">
-                  <input
-                    type="number"
-                    value={tempGoldGrams}
-                    onChange={(e) => setTempGoldGrams(e.target.value)}
-                    className="w-24 px-2 py-1 border border-gray-200 rounded-lg text-lg font-mono focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    step="0.001"
-                  />
-                  <button onClick={handleSaveGoldGrams} className="bg-amber-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-amber-700 font-bold">حفظ</button>
-                  <button onClick={() => setIsEditingGoldGrams(false)} className="text-gray-400 text-xs hover:text-gray-600">إلغاء</button>
-                </div>
-              ) : (
-                <div className="flex items-baseline gap-2 mt-2">
-                  <h3 className="text-3xl font-mono font-bold text-amber-600">{gold.grams.toLocaleString()} <span className="text-sm font-sans text-gray-400">جرام</span></h3>
-                  <button onClick={() => { setTempGoldGrams(gold.grams.toString()); setIsEditingGoldGrams(true); }} className="text-xs text-amber-700 hover:underline">تعديل</button>
-                </div>
-              )}
-            </div>
-            <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl shrink-0">
-              <Coins className="w-6 h-6" />
-            </div>
-          </div>
-          <div className="border-t border-gray-50 mt-4 pt-3 flex items-center justify-between text-xs text-gray-500">
-            <span>القيمة باليورو:</span>
-            <span className="font-mono font-semibold text-gray-700">€{totalGoldValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          </div>
-        </motion.div>
-
-        {/* Card 4: Monthly Savings */}
-        <motion.div 
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.3 }}
-          className="bg-white p-6 rounded-3xl border border-gray-100 shadow-xs flex flex-col justify-between"
-        >
-          <div className="flex items-start justify-between">
-            <div>
-              <span className="text-xs text-gray-400 font-medium">الادخار لهذا الشهر ({new Date().toLocaleDateString('ar-EG', { month: 'long' })})</span>
-              <h3 className={`text-3xl font-mono font-bold mt-2 ${currentMonthSavings >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                {currentMonthSavings >= 0 ? '+' : ''}€{currentMonthSavings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <span className="text-[10px] uppercase text-indigo-300 font-black tracking-widest bg-indigo-900/40 px-2.5 py-1 rounded-full border border-indigo-500/10">صافي الأصول والممتلكات</span>
+              <h3 className="text-2xl font-mono font-bold mt-3 text-white break-all">
+                €{totalNetWorth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h3>
             </div>
-            <div className={`p-3 rounded-2xl ${currentMonthSavings >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-              {currentMonthSavings >= 0 ? <TrendingUp className="w-6 h-6" /> : <TrendingDown className="w-6 h-6" />}
+            <div className="p-2 bg-indigo-600/30 text-indigo-400 rounded-2xl border border-indigo-500/20">
+              <PiggyBank className="w-5 h-5 text-indigo-400" />
             </div>
           </div>
-          <div className="border-t border-gray-50 mt-4 pt-3 flex items-center justify-between text-xs text-gray-500">
-            <span>نسبة الادخار: {currentMonthSavingsRate.toFixed(1)}%</span>
-            <span>الدخل: €{monthlyIncome.toLocaleString()}</span>
+          <div className="border-t border-white/5 pt-3 flex items-center justify-between text-[10px] text-indigo-200/80 font-mono">
+            <span>البنك: €{bankBalance.toLocaleString()}</span>
+            <span>الكاش: €{cashBalance.toLocaleString()}</span>
+            <span>الذهب: €{totalGoldValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>
-        </motion.div>
+        </div>
+
+        {/* Bank Balance Card */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs flex flex-col justify-between h-48 hover:border-indigo-100 transition-colors">
+          <div className="flex items-start justify-between">
+            <div>
+              <span className="text-[10px] text-slate-400 font-black">الحساب البنكي</span>
+              <h3 className="text-2xl font-mono font-bold text-slate-900 mt-2 break-all">
+                €{bankBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h3>
+            </div>
+            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+              <Briefcase className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="border-t border-slate-50 pt-2.5 flex items-center justify-between">
+            <span className="text-[10px] text-slate-400 font-sans">الأموال المودعة بالبنك</span>
+            <button 
+              onClick={() => openEditField('bank', bankBalance)}
+              className="text-[10px] font-bold text-indigo-600 hover:underline bg-indigo-50 px-2 py-1 rounded-lg"
+            >
+              تعديل الرصيد
+            </button>
+          </div>
+        </div>
+
+        {/* Cash Balance Card */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs flex flex-col justify-between h-48 hover:border-emerald-100 transition-colors">
+          <div className="flex items-start justify-between">
+            <div>
+              <span className="text-[10px] text-slate-400 font-black">خزنة الكاش السائل</span>
+              <h3 className="text-2xl font-mono font-bold text-slate-900 mt-2 break-all">
+                €{cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h3>
+            </div>
+            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+              <Coins className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="border-t border-slate-50 pt-2.5 flex items-center justify-between">
+            <span className="text-[10px] text-slate-400 font-sans">السيولة النقدية الورقية</span>
+            <button 
+              onClick={() => openEditField('cash', cashBalance)}
+              className="text-[10px] font-bold text-emerald-600 hover:underline bg-emerald-50 px-2 py-1 rounded-lg"
+            >
+              تعديل الرصيد
+            </button>
+          </div>
+        </div>
+
+        {/* Gold Grams holdings card */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs flex flex-col justify-between h-48 hover:border-amber-100 transition-colors">
+          <div className="flex items-start justify-between">
+            <div>
+              <span className="text-[10px] text-slate-400 font-black">مخزون الذهب عيار 24</span>
+              <h3 className="text-2xl font-mono font-bold text-amber-600 mt-2 break-all">
+                {gold.grams.toLocaleString()} <span className="text-xs font-sans text-slate-400">جرام</span>
+              </h3>
+            </div>
+            <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+              <Coins className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="border-t border-slate-50 pt-2.5 flex items-center justify-between text-xs text-slate-500">
+            <span className="text-[10px] font-medium font-mono text-slate-400">القيمة: €{totalGoldValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            <button 
+              onClick={() => openEditField('goldGrams', gold.grams)}
+              className="text-[10px] font-bold text-amber-700 hover:underline bg-amber-50 px-2 py-1 rounded-lg"
+            >
+              تعديل الجرامات
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Goal Progress Section (100k Goal) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Goal Indicator Card */}
-        <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-gray-100 shadow-xs space-y-6">
-          <div className="flex items-center justify-between">
+
+
+      {/* Internal Transfer Module - Extremely Simple & Sleek Block */}
+      <div className="bg-slate-50 border border-slate-100 p-5 rounded-3xl">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+              <ArrowRightLeft className="w-5 h-5" />
+            </div>
+            <div className="text-right">
+              <h4 className="text-xs font-black text-slate-800">إجراء مناقلة سريعة ومقاصة فورية</h4>
+              <p className="text-[11px] text-slate-500 font-sans">حول المبالغ النقدية مباشرة بين البنك والخزنة الشخصية يدوياً</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowTransferForm(!showTransferForm)}
+            className="text-xs bg-white hover:bg-slate-100 text-indigo-600 font-bold px-4 py-2 rounded-xl border border-slate-200 shadow-2xs transition-all cursor-pointer"
+          >
+            {showTransferForm ? 'إلغاء وإغلاق النموذج' : 'تحويل أموال الآن 💸'}
+          </button>
+        </div>
+
+        <AnimatePresence>
+          {showTransferForm && (
+            <motion.form
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              onSubmit={handleExecuteTransfer}
+              className="overflow-hidden mt-4 pt-4 border-t border-slate-200/60 space-y-4 text-right"
+            >
+              {transferError && (
+                <div className="p-3 bg-rose-50 border border-rose-100 text-rose-600 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{transferError}</span>
+                </div>
+              )}
+              {transferSuccess && (
+                <div className="p-3 bg-emerald-50 border border-emerald-100 text-emerald-600 rounded-xl text-xs flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{transferSuccess}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-500 block">اتجاة التحويل</label>
+                  <select
+                    value={transferType}
+                    onChange={(e) => setTransferType(e.target.value as any)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 focus:outline-none"
+                  >
+                    <option value="cash_to_bank">📥 من الكاش المتوفر إلى حساب البنك</option>
+                    <option value="bank_to_cash">📤 من حساب البنك إلى الكاش المتوفر</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-500 block">المبلغ المراد تحويله (EUR)</label>
+                  <input
+                    type="number"
+                    required
+                    min="0.01"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={transferAmount}
+                    onChange={(e) => setTransferAmount(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono font-bold text-slate-800 text-left focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-500 block">البيان / ملاحظات اختيارية</label>
+                  <input
+                    type="text"
+                    placeholder="مثال: إيداع نقدي، سحب ATM"
+                    value={transferDescription}
+                    onChange={(e) => setTransferDescription(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-700 focus:outline-none focus:border-indigo-500 font-sans"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="submit"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-6 py-2.5 rounded-xl transition-all shadow-xs"
+                >
+                  تأكيد التحويل فوراً 🚀
+                </button>
+              </div>
+            </motion.form>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Goal Savings and Milestones - Combined Bento Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Goal Indicator block */}
+        <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-100 shadow-xs space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
+              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
                 <Target className="w-5 h-5" />
               </div>
-              <div>
-                <h3 className="text-lg font-bold text-gray-900">التقدم نحو هدف الـ {goal.target.toLocaleString()} يورو</h3>
-                <p className="text-xs text-gray-400">تحليل دقيق ومحاكاة للوصول للهدف الأكبر</p>
+              <div className="text-right">
+                <h3 className="text-sm font-black text-slate-900">{goal.title || 'هدف الادخار المالي'}</h3>
+                <p className="text-[11px] text-slate-400">تتبع تقدمك ومسار تقدم ثروتك نحو هدف الـ €{goal.target.toLocaleString()}</p>
               </div>
             </div>
-            <span className="text-xs font-mono font-semibold bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full">
-              المتبقي: €{remainingToGoal.toLocaleString()}
-            </span>
+            <button
+              onClick={() => openEditField('goal', goal.target, goal.title)}
+              className="text-[10px] text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1 rounded-lg font-bold w-fit"
+            >
+              تعديل قيمة الهدف ✏️
+            </button>
           </div>
 
-          {/* Progress Bar */}
+          {/* Elegant Progress bar design */}
           <div className="space-y-2">
-            <div className="flex justify-between text-xs font-medium text-gray-600">
-              <span>البداية (€0)</span>
-              <span className="text-indigo-600 font-mono font-bold text-sm">{progressPercentage.toFixed(1)}% مكتمل</span>
-              <span>الهدف (€{goal.target.toLocaleString()})</span>
+            <div className="flex justify-between text-xs font-bold text-slate-600">
+              <span className="font-mono text-[11px]">المتبقي: €{remainingToGoal.toLocaleString()}</span>
+              <span className="text-indigo-600 font-mono text-[13px]">{progressPercentage.toFixed(1)}% مكتمل</span>
             </div>
-            <div className="w-full bg-gray-100 h-4 rounded-full overflow-hidden p-0.5">
+            <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden p-0.5">
               <motion.div 
                 initial={{ width: 0 }}
                 animate={{ width: `${progressPercentage}%` }}
-                transition={{ duration: 1, ease: 'easeOut' }}
-                className="bg-gradient-to-l from-indigo-600 to-indigo-400 h-full rounded-full shadow-xs"
+                className="bg-gradient-to-l from-indigo-600 to-indigo-400 h-full rounded-full"
               />
             </div>
           </div>
 
-          {/* Target Milestone Calculator */}
-          <div className="bg-gray-50 p-6 rounded-2xl grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="space-y-1">
-              <div className="text-xs text-gray-400 flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                <span>معدل الادخار الشهري المفترض</span>
-              </div>
-              <div className="text-lg font-mono font-bold text-gray-800">
+          {/* Simulation stats */}
+          <div className="bg-slate-50/50 p-4 rounded-2xl grid grid-cols-1 sm:grid-cols-2 gap-4 border border-slate-100">
+            <div className="space-y-0.5 text-right">
+              <span className="text-[10px] text-slate-400 font-sans flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                متوسط الادخار الشهري الفعلي
+              </span>
+              <div className="text-sm font-mono font-black text-slate-800">
                 €{monthlySavingsForCalculation.toLocaleString(undefined, { maximumFractionDigits: 0 })}/شهر
               </div>
-              <div className="text-[10px] text-gray-400 font-sans">
-                {averageMonthlySavings > 50 ? 'محسوب تلقائياً من معاملاتك' : 'معدل افتراضي مبدئي'}
-              </div>
             </div>
-
-            <div className="space-y-1 border-r md:border-r-0 md:border-x border-gray-200 md:px-6">
-              <div className="text-xs text-gray-400 flex items-center gap-1">
+            <div className="space-y-0.5 text-right border-r border-slate-200/60 pr-4">
+              <span className="text-[10px] text-indigo-500 font-sans flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5 text-indigo-500" />
-                <span>الوقت المتبقي للهدف</span>
-              </div>
-              <div className="text-lg font-bold text-indigo-700">
+                الوقت المتوقع لبلوغ الهدف
+              </span>
+              <div className="text-sm font-bold text-indigo-700">
                 {yearsToGoal > 0 ? `${yearsToGoal} سنة و ${remainingMonthsToGoal} شهر` : `${remainingMonthsToGoal} أشهر`}
               </div>
-              <div className="text-[10px] text-indigo-500 font-sans font-medium">
-                بناءً على متوسط مدخراتك الحالي
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-xs text-gray-400 flex items-center gap-1">
-                <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
-                <span>كيف تسرّع الوصول؟</span>
-              </div>
-              <p className="text-xs text-gray-600 leading-relaxed font-sans">
-                بزيادة ادخارك بمقدار <span className="font-bold text-emerald-600">€100</span> شهرياً فقط، ستقلص مدة الانتظار بحوالي <span className="font-bold text-emerald-600">
-                  {Math.max(1, Math.round(monthsToGoal - (remainingToGoal / (monthlySavingsForCalculation + 100))))} أشهر
-                </span>!
-              </p>
             </div>
           </div>
 
-          {/* Milestone Achievements Road */}
-          <div className="border-t border-gray-100 pt-6 space-y-4">
-            <div className="flex justify-between items-center">
-              <h4 className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                <Award className="w-4 h-4 text-indigo-600" />
-                معالم الطريق المنجزة والمستهدفة (بناء الثروة)
-              </h4>
-              <span className="text-[10px] text-gray-400 font-sans">تحديث فوري مع زيادة مدخراتك</span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-              {milestones.map((milestone) => {
-                const isAchieved = progressPercentage >= milestone.percentage;
+          {/* Milestones Horizontal map */}
+          <div className="border-t border-slate-100 pt-5 space-y-3">
+            <span className="text-[10px] text-slate-400 block font-black">معالم طريق بناء الثروة (€):</span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {milestones.map(m => {
+                const isAchieved = progressPercentage >= m.percentage;
                 return (
-                  <div
-                    key={milestone.percentage}
-                    className={`p-3.5 rounded-2xl border transition-all relative overflow-hidden flex flex-col justify-between ${
-                      isAchieved
-                        ? 'bg-emerald-50/50 border-emerald-100 text-emerald-950 shadow-xs'
-                        : 'bg-slate-50/40 border-slate-100 text-slate-400'
-                    }`}
-                  >
-                    {isAchieved && (
-                      <div className="absolute top-0 left-0 bg-emerald-500 text-white p-1 rounded-br-xl">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-white" />
-                      </div>
-                    )}
-                    
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-[11px] font-bold ${isAchieved ? 'text-emerald-800' : 'text-slate-500'}`}>
-                          {milestone.percentage}%
-                        </span>
-                        <span className="text-[9px] font-mono opacity-85">
-                          (€{(milestone.amount).toLocaleString(undefined, { maximumFractionDigits: 0 })})
-                        </span>
-                      </div>
-                      <p className={`text-xs font-bold leading-tight ${isAchieved ? 'text-emerald-950 font-black' : 'text-slate-700'}`}>
-                        {milestone.label.split(': ')[1] || milestone.label}
-                      </p>
+                  <div key={m.percentage} className={`p-2.5 rounded-xl border text-right transition-all ${
+                    isAchieved ? 'bg-emerald-500/5 border-emerald-100 text-emerald-950' : 'bg-slate-50/50 border-slate-100 text-slate-400'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-[10px] font-bold">{m.percentage}%</span>
+                      {isAchieved && <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />}
                     </div>
-
-                    <p className="text-[10px] text-slate-500 font-sans mt-2.5 leading-relaxed">
-                      {milestone.description}
-                    </p>
+                    <span className={`block text-[11px] font-bold mt-1 truncate ${isAchieved ? 'text-emerald-950' : 'text-slate-700'}`}>
+                      {m.label.split(': ')[1] || m.label}
+                    </span>
                   </div>
                 );
               })}
@@ -586,202 +779,138 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Wealth Distribution / Insights Panel */}
-        <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-xs space-y-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
-              <HelpCircle className="w-5 h-5" />
+        {/* Wealth Distribution capsule */}
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-xs flex flex-col justify-between">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-amber-500/10 text-amber-600 rounded-xl">
+                <Award className="w-5 h-5" />
+              </div>
+              <div className="text-right">
+                <h3 className="text-xs font-black text-slate-900">تنوع الأصول والسيولة</h3>
+                <p className="text-[10px] text-slate-400 font-sans">توزيع محفظتك الكلية اليوم</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-gray-900">توزيع أصولك الحالية</h3>
-              <p className="text-xs text-gray-400">مدى تنوع محفظتك بين الكاش والذهب</p>
+
+            <div className="space-y-3 pt-2">
+              <div className="space-y-1">
+                <div className="flex justify-between text-[11px] font-bold text-slate-600">
+                  <span>السيولة النقدية البنكية والكاش</span>
+                  <span className="font-mono">{totalNetWorth > 0 ? (((bankBalance + cashBalance) / totalNetWorth) * 100).toFixed(1) : 0}%</span>
+                </div>
+                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                  <div className="bg-blue-500 h-full rounded-full" style={{ width: `${totalNetWorth > 0 ? ((bankBalance + cashBalance) / totalNetWorth) * 100 : 0}%` }} />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between text-[11px] font-bold text-slate-600">
+                  <span>مخزون الذهب المادي الآمن</span>
+                  <span className="font-mono">{totalNetWorth > 0 ? ((totalGoldValue / totalNetWorth) * 100).toFixed(1) : 0}%</span>
+                </div>
+                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                  <div className="bg-amber-500 h-full rounded-full" style={{ width: `${totalNetWorth > 0 ? (totalGoldValue / totalNetWorth) * 100 : 0}%` }} />
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="space-y-4 pt-2">
-            {/* Bank cash slice */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-xs">
-                <span className="text-gray-600 font-medium">الحساب البنكي (سيولة نقدية)</span>
-                <span className="font-mono font-bold text-gray-800">{totalNetWorth > 0 ? ((bankBalance / totalNetWorth) * 100).toFixed(1) : 0}%</span>
-              </div>
-              <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
-                <div className="bg-blue-500 h-full rounded-full" style={{ width: `${totalNetWorth > 0 ? (bankBalance / totalNetWorth) * 100 : 0}%` }} />
-              </div>
-              <div className="text-[10px] text-gray-400">تمنحك الأمان والقدرة على سداد المصاريف اليومية فوراً.</div>
-            </div>
-
-            {/* Gold slice */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-xs">
-                <span className="text-amber-700 font-medium">الذهب عيار 24 (أصول مخزنة)</span>
-                <span className="font-mono font-bold text-amber-800">{totalNetWorth > 0 ? ((totalGoldValue / totalNetWorth) * 100).toFixed(1) : 0}%</span>
-              </div>
-              <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
-                <div className="bg-amber-500 h-full rounded-full" style={{ width: `${totalNetWorth > 0 ? (totalGoldValue / totalNetWorth) * 100 : 0}%` }} />
-              </div>
-              <div className="text-[10px] text-gray-400">يحمي مدخراتك من التضخم ويعتبر ملاذاً آمناً للأموال طويلة المدى.</div>
-            </div>
-          </div>
-
-          <div className="bg-amber-50/50 p-4 rounded-2xl border border-amber-100 text-xs text-amber-900 leading-relaxed font-sans">
-            <span className="font-bold">نصيحة مالية:</span> توزيع الأصول بنسبة متوازنة (مثلاً 70% كاش في البنك للمصاريف والفرص الاستثمارية و 30% ذهب لحفظ القيمة) يعزز أمانك المالي واستقرارك على المدى البعيد.
+          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100/60 text-[10px] text-slate-500 leading-relaxed mt-4">
+            <span className="font-black text-slate-700">توجيه مالي:</span> الحفاظ على تنوع الأصول يحمي أموالك من التضخم، مع الحفاظ على جزء من السيولة للمصاريف وفرص الاستثمار المباشرة.
           </div>
         </div>
       </div>
 
-      {/* Category Budget Tracker Panel */}
-      <motion.div
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, delay: 0.4 }}
-        className="bg-white p-8 rounded-3xl border border-gray-100 shadow-xs space-y-6"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-50 pb-5">
+      {/* Monthly Budget Category Limits Tracker */}
+      <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-xs space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
-              <PiggyBank className="w-5 h-5 text-indigo-600" />
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+              <Bell className="w-5 h-5 text-indigo-600" />
             </div>
             <div className="text-right">
-              <h3 className="text-lg font-bold text-gray-900">الميزانيات الشهرية المخططة لكل فئة</h3>
-              <p className="text-xs text-gray-400">تحكم بحدود إنفاقك الشهري لزيادة فوائض الادخار وتحقيق الأهداف بشكل أسرع.</p>
+              <h3 className="text-sm font-black text-slate-900">الميزانيات المحددة والإنفاق الفعلي لكل فئة</h3>
+              <p className="text-[11px] text-slate-400">تابع الحدود والإنفاق الفعلي شهرياً لتفادي الإسراف المالي.</p>
             </div>
           </div>
-          
-          <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-2xl">
-            <div className="text-xs text-slate-500 font-medium px-2">
-              إجمالي الميزانيات المحددة:{' '}
-              <span className="font-mono font-bold text-slate-900">
-                €{Object.values(categoryBudgets).reduce((sum, b) => sum + b, 0).toLocaleString()}
-              </span>
-            </div>
-            {Object.keys(currentMonthExpensesByCategory).length > 0 && (
-              <div className="text-xs bg-emerald-50 text-emerald-800 font-bold px-2.5 py-1 rounded-xl">
-                إجمالي المصاريف الفعلية هذا الشهر:{' '}
-                <span className="font-mono">
-                  €{Object.values(currentMonthExpensesByCategory).reduce((sum, a) => sum + a, 0).toLocaleString()}
-                </span>
-              </div>
-            )}
+          <div className="text-xs bg-slate-50 border border-slate-200/50 px-3 py-1.5 rounded-xl font-mono font-bold text-slate-700">
+            إجمالي حدود الميزانية: €{Object.values(categoryBudgets).reduce((sum, b) => sum + b, 0).toLocaleString()}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {Object.keys(EXPENSE_CATEGORIES_AR).map((key) => {
-            const catInfo = EXPENSE_CATEGORIES_AR[key];
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {Object.keys(allExpenseCategoriesMap).map((key) => {
+            const catInfo = allExpenseCategoriesMap[key];
             const spent = currentMonthExpensesByCategory[key] || 0;
             const budget = categoryBudgets[key] || 0;
             const pct = budget > 0 ? (spent / budget) * 100 : 0;
             const isEditing = editingCategory === key;
-            
-            // Color mapping based on usage
-            let progressColor = 'bg-emerald-500';
-            let textColor = 'text-emerald-700';
-            let bgLight = 'bg-emerald-50/20';
+
+            let progressColor = 'bg-indigo-500';
+            let bgLight = 'bg-white hover:bg-slate-50/50';
             let borderStyle = 'border-slate-100';
 
             if (pct >= 100) {
-              progressColor = 'bg-rose-500 animate-pulse';
-              textColor = 'text-rose-700 font-bold';
-              bgLight = 'bg-rose-50/50';
-              borderStyle = 'border-rose-100 ring-1 ring-rose-500/10';
+              progressColor = 'bg-rose-500';
+              bgLight = 'bg-rose-50/5 border-rose-100/80';
             } else if (pct >= 80) {
               progressColor = 'bg-amber-500';
-              textColor = 'text-amber-700 font-bold';
-              bgLight = 'bg-amber-50/40';
-              borderStyle = 'border-amber-100';
+              bgLight = 'bg-amber-50/5 border-amber-100/80';
             }
 
             return (
-              <div
-                key={key}
-                className={`p-4.5 rounded-2xl border transition-all flex flex-col justify-between ${bgLight} ${borderStyle}`}
-              >
-                <div>
-                  <div className="flex justify-between items-start mb-3">
-                    <span className="text-xl bg-white p-1.5 rounded-xl shadow-xs border border-slate-100">
-                      {catInfo.icon}
-                    </span>
-                    <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
-                      pct >= 100 ? 'bg-rose-100 text-rose-800' : pct >= 80 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+              <div key={key} className={`p-4 rounded-2xl border transition-all ${bgLight} ${borderStyle} flex flex-col justify-between h-40`}>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-base bg-slate-100 p-1 rounded-lg">{catInfo.icon}</span>
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                      pct >= 100 ? 'bg-rose-100 text-rose-700' : pct >= 80 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
                     }`}>
-                      {pct >= 100 ? 'تجاوزت الحد! ⚠️' : pct >= 80 ? 'قريب من الحد ⚠️' : 'تحت السيطرة ✅'}
+                      {pct >= 100 ? 'تجاوزت الحد' : pct >= 80 ? 'أوشكت الميزانية' : 'آمن'}
                     </span>
                   </div>
 
-                  <h4 className="text-sm font-black text-slate-800 mb-1 text-right">{catInfo.name}</h4>
-                  
-                  {/* Spent vs Budget amount */}
-                  <div className="flex justify-between items-baseline text-xs mt-2.5 mb-1.5">
-                    <span className="text-slate-500 font-medium">الإنفاق الفعلي:</span>
-                    <span className="font-mono font-bold text-slate-900">€{spent.toLocaleString()}</span>
-                  </div>
+                  <h4 className="text-xs font-black text-slate-800">{catInfo.name}</h4>
 
-                  <div className="flex justify-between items-center text-xs pb-3 border-b border-dashed border-slate-200/60 mb-3.5">
-                    <span className="text-slate-500 font-medium">الميزانية المرصودة:</span>
+                  <div className="flex justify-between items-baseline text-[11px] text-slate-500">
+                    <span>المنفق: <strong className="font-mono text-slate-800">€{spent}</strong></span>
                     {isEditing ? (
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 font-sans">
                         <input
                           type="number"
                           value={editingValue}
                           onChange={(e) => setEditingValue(e.target.value)}
-                          className="w-16 px-1.5 py-0.5 text-xs font-mono border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
-                          autoFocus
+                          className="w-16 bg-white border border-slate-200 rounded px-1 text-center font-mono text-[11px]"
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') handleSaveCategoryBudget(key);
                             if (e.key === 'Escape') setEditingCategory(null);
                           }}
                         />
-                        <button
-                          onClick={() => handleSaveCategoryBudget(key)}
-                          className="text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded hover:bg-indigo-700 font-bold"
-                        >
-                          حفظ
-                        </button>
+                        <button onClick={() => handleSaveCategoryBudget(key)} className="text-[9px] bg-indigo-600 text-white px-1 py-0.5 rounded">حفظ</button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-mono font-bold text-slate-950">€{budget.toLocaleString()}</span>
-                        <button
-                          onClick={() => startEditingCategory(key, budget)}
-                          className="text-[10px] text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer"
-                        >
-                          تعديل
-                        </button>
-                      </div>
+                      <span className="flex items-center gap-1">
+                        الحد: <strong className="font-mono text-slate-800">€{budget}</strong>
+                        <button onClick={() => startEditingCategory(key, budget)} className="text-indigo-600 text-[9px] underline font-bold">تعديل</button>
+                      </span>
                     )}
                   </div>
                 </div>
 
-                {/* Progress bar container */}
-                <div className="space-y-1.5">
-                  <div className="w-full bg-slate-200/50 h-2.5 rounded-full overflow-hidden p-0.5">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${progressColor}`}
-                      style={{ width: `${Math.min(100, pct)}%` }}
-                    />
+                <div className="space-y-1">
+                  <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${progressColor}`} style={{ width: `${Math.min(100, pct)}%` }} />
                   </div>
-                  <div className="flex justify-between text-[10px] font-sans text-slate-400">
-                    <span>نسبة الإنفاق: {pct.toFixed(0)}%</span>
-                    {budget > 0 && spent > budget && (
-                      <span className="text-rose-600 font-bold">تجاوزت بـ €{(spent - budget).toLocaleString()}</span>
-                    )}
+                  <div className="flex justify-between text-[9px] font-mono text-slate-400">
+                    <span>النسبة: {pct.toFixed(0)}%</span>
+                    {pct > 100 && <span className="text-rose-600">تجاوز بـ €{spent - budget}</span>}
                   </div>
                 </div>
               </div>
             );
           })}
         </div>
-
-        {/* Informative budget alert guidance */}
-        <div className="bg-slate-50 border border-slate-100 p-4.5 rounded-2xl flex items-start gap-3 text-xs text-slate-600 leading-relaxed font-sans text-right">
-          <span className="text-lg">💡</span>
-          <div>
-            <span className="font-bold text-slate-800">نصيحة مالية ذكية للتحكم بالميزانية:</span>
-            {' '}تعتمد استراتيجية الادخار الناجحة على طريقة "ادفع لنفسك أولاً" عن طريق شراء الذهب أو تحويل فائض الراتب للادخار بمجرد استلامه، ومن ثم توزيع بقية المبلغ على الميزانيات المذكورة أعلاه. تذكر أن مراقبة ميزانيات الفئات يومياً تمنع الاستنزاف المالي غير المدروس للمصاريف النثرية!
-          </div>
-        </div>
-      </motion.div>
+      </div>
     </div>
   );
 }

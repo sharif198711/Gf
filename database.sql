@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(255) UNIQUE NOT NULL,
   password VARCHAR(255) NOT NULL, -- لتخزين كلمة المرور المشفرة
   bank_balance DECIMAL(15, 2) DEFAULT 0.00,
+  cash_balance DECIMAL(15, 2) DEFAULT 0.00,
   gold_grams DECIMAL(10, 3) DEFAULT 0.000,
   gold_price_per_gram DECIMAL(10, 2) DEFAULT 75.00,
   goal_target DECIMAL(15, 2) DEFAULT 100000.00,

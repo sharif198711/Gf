@@ -281,16 +281,16 @@ export default function GoldTracker({
             goldTransactions.map((t, idx) => (
               <div 
                 key={t.id || idx}
-                className="flex items-center justify-between p-4 bg-gray-50/50 hover:bg-gray-50 border border-gray-100 rounded-2xl transition-all"
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-gray-50/50 hover:bg-gray-50 border border-gray-100 rounded-2xl transition-all"
               >
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-xl ${
+                  <div className={`p-2 rounded-xl shrink-0 ${
                     t.category === 'gold_buy' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
                   }`}>
                     <Coins className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-bold text-gray-800 text-sm">{t.description}</span>
                       <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${
                         t.category === 'gold_buy' ? 'bg-amber-500/10 text-amber-800' : 'bg-emerald-500/10 text-emerald-800'
@@ -309,7 +309,7 @@ export default function GoldTracker({
                   </div>
                 </div>
 
-                <div className="flex flex-col items-end gap-1 font-mono">
+                <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center w-full sm:w-auto border-t sm:border-t-0 pt-2.5 sm:pt-0 border-gray-100 gap-1 font-mono">
                   <span className={`text-sm font-bold ${
                     t.category === 'gold_buy' ? 'text-rose-600' : 'text-emerald-600'
                   }`}>

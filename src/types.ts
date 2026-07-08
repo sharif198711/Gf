@@ -5,7 +5,7 @@ export interface Transaction {
   amount: number;
   category: string;
   description: string;
-  account: 'bank' | 'gold_purchase' | 'gold_sale';
+  account: 'bank' | 'cash' | 'gold_purchase' | 'gold_sale';
   goldGrams?: number; // If buying/selling gold, track grams
   paymentMethod?: 'cash' | 'card' | 'transfer';
 }
@@ -24,9 +24,12 @@ export interface AppData {
   transactions: Transaction[];
   gold: GoldState;
   bankBalance: number; // current bank balance
+  cashBalance: number; // current cash balance
   goal: SavingsGoal;
   premiumTier?: 'free' | 'monthly' | 'lifetime';
   subscriptionActive?: boolean;
   paymentHistory?: { date: string; amount: number; type: 'monthly' | 'lifetime'; transactionId: string }[];
   categoryBudgets?: { [categoryKey: string]: number };
+  customExpenseCategories?: { id: string; name: string; color: string }[];
+  customIncomeCategories?: { id: string; name: string; color: string }[];
 }

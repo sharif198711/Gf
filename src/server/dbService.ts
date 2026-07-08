@@ -54,6 +54,13 @@ export async function isDbConnected(): Promise<boolean> {
   if (!dbPool) return false;
   try {
     const connection = await dbPool.getConnection();
+    // Safely add cash_balance column if it doesn't exist
+    try {
+      await connection.query('ALTER TABLE users ADD COLUMN cash_balance DECIMAL(15, 2) DEFAULT 0.00');
+      console.log('✅ [Database] Added cash_balance column to users table.');
+    } catch (colErr) {
+      // Column already exists or table doesn't exist yet
+    }
     connection.release();
     return true;
   } catch (err) {
@@ -64,6 +71,7 @@ export async function isDbConnected(): Promise<boolean> {
 
 export interface UserFinanceState {
   bankBalance: number;
+  cashBalance?: number;
   gold: {
     grams: number;
     currentPricePerGram: number;
@@ -95,40 +103,24 @@ export async function authenticateOrRegister(email: string, passwordPlain: strin
       }
       return { userId: user.id, email: user.email, isNew: false };
     } else {
-      // 2. Register new user
+      // 2. Register new user with zero values so they can input their own data
       const [result]: any = await dbPool.query(
         'INSERT INTO users (email, password, bank_balance, gold_grams, gold_price_per_gram, goal_target, goal_title) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [email, passwordPlain, 1980.00, 10.000, 75.00, 100000.00, 'توفير مئة ألف يورو']
+        [email, passwordPlain, 0.00, 0.000, 75.00, 10000.00, 'الهدف المالي الشخصي']
       );
       
       const userId = result.insertId;
 
-      // Seed default transactions for new user
-      const defaultTxs = [
-        ['init-1', userId, new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString().substring(0, 10), 'income', 4200.00, 'salary', 'الراتب الشهري الأساسي', 'bank', null],
-        ['init-2', userId, new Date(Date.now() - 1000 * 60 * 60 * 24 * 9).toISOString().substring(0, 10), 'expense', 1100.00, 'rent', 'إيجار شقة السكن لشهر يونيو', 'bank', null],
-        ['init-3', userId, new Date(Date.now() - 1000 * 60 * 60 * 24 * 7).toISOString().substring(0, 10), 'expense', 150.00, 'utilities', 'فاتورة الكهرباء والغاز والانترنت والماء', 'bank', null],
-        ['init-4', userId, new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString().substring(0, 10), 'expense', 750.00, 'gold_buy', 'ادخار وشراء سبيكة ذهب عيار 24', 'gold_purchase', 10.000],
-        ['init-5', userId, new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString().substring(0, 10), 'expense', 220.00, 'groceries', 'مقاضي ومواد غذائية ولحوم للبيت', 'bank', null]
-      ];
-
-      for (const tx of defaultTxs) {
-        await dbPool.query(
-          'INSERT INTO transactions (id, user_id, date, type, amount, category, description, account, gold_grams) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          tx
-        );
-      }
-
-      // Seed default budgets
+      // Seed default budgets (all starting at 0.00)
       const defaultBudgets = [
-        ['rent', 1200.00],
-        ['groceries', 400.00],
-        ['utilities', 200.00],
-        ['transportation', 150.00],
-        ['health', 100.00],
-        ['entertainment', 250.00],
-        ['gold_buy', 1000.00],
-        ['other_expense', 300.00]
+        ['rent', 0.00],
+        ['groceries', 0.00],
+        ['utilities', 0.00],
+        ['transportation', 0.00],
+        ['health', 0.00],
+        ['entertainment', 0.00],
+        ['gold_buy', 0.00],
+        ['other_expense', 0.00]
       ];
 
       for (const b of defaultBudgets) {
@@ -181,6 +173,7 @@ export async function getUserFinanceState(userId: number): Promise<UserFinanceSt
 
     return {
       bankBalance: Number(user.bank_balance),
+      cashBalance: user.cash_balance !== undefined && user.cash_balance !== null ? Number(user.cash_balance) : 0.00,
       gold: {
         grams: Number(user.gold_grams),
         currentPricePerGram: Number(user.gold_price_per_gram)
@@ -211,9 +204,10 @@ export async function saveUserFinanceState(userId: number, state: UserFinanceSta
 
     // 1. Update user core details
     await connection.query(
-      'UPDATE users SET bank_balance = ?, gold_grams = ?, gold_price_per_gram = ?, goal_target = ?, goal_title = ? WHERE id = ?',
+      'UPDATE users SET bank_balance = ?, cash_balance = ?, gold_grams = ?, gold_price_per_gram = ?, goal_target = ?, goal_title = ? WHERE id = ?',
       [
         state.bankBalance,
+        state.cashBalance !== undefined ? state.cashBalance : 0.00,
         state.gold.grams,
         state.gold.currentPricePerGram,
         state.goal.target,
@@ -264,3 +258,131 @@ export async function saveUserFinanceState(userId: number, state: UserFinanceSta
     connection.release();
   }
 }
+
+/**
+ * Register a new user explicitly with zeroed financial data
+ */
+export async function registerUser(email: string, passwordPlain: string): Promise<{ userId: number; email: string } | null> {
+  const dbPool = getDbPool();
+  if (!dbPool) return null;
+
+  try {
+    const [rows]: any = await dbPool.query('SELECT * FROM users WHERE email = ?', [email]);
+    if (rows.length > 0) {
+      throw new Error('البريد الإلكتروني مسجل بالفعل. يرجى تسجيل الدخول.');
+    }
+
+    const [result]: any = await dbPool.query(
+      'INSERT INTO users (email, password, bank_balance, gold_grams, gold_price_per_gram, goal_target, goal_title) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [email, passwordPlain, 0.00, 0.000, 75.00, 100000.00, 'توفير مئة ألف يورو']
+    );
+    const userId = result.insertId;
+
+    const defaultBudgets = [
+      ['rent', 0.00],
+      ['groceries', 0.00],
+      ['utilities', 0.00],
+      ['transportation', 0.00],
+      ['health', 0.00],
+      ['entertainment', 0.00],
+      ['gold_buy', 0.00],
+      ['other_expense', 0.00]
+    ];
+
+    for (const b of defaultBudgets) {
+      await dbPool.query(
+        'INSERT INTO category_budgets (user_id, category_key, limit_amount) VALUES (?, ?, ?)',
+        [userId, b[0], b[1]]
+      );
+    }
+
+    return { userId, email };
+  } catch (error: any) {
+    console.error('❌ [Database] Error registering user:', error);
+    throw error;
+  }
+}
+
+/**
+ * Login or register automatically with Google Gmail with zeroed initial data
+ */
+export async function loginWithGoogle(email: string): Promise<{ userId: number; email: string; isNew: boolean } | null> {
+  const dbPool = getDbPool();
+  if (!dbPool) return null;
+
+  try {
+    const [rows]: any = await dbPool.query('SELECT * FROM users WHERE email = ?', [email]);
+    if (rows.length > 0) {
+      const user = rows[0];
+      return { userId: user.id, email: user.email, isNew: false };
+    } else {
+      const [result]: any = await dbPool.query(
+        'INSERT INTO users (email, password, bank_balance, gold_grams, gold_price_per_gram, goal_target, goal_title) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [email, 'GOOGLE_AUTH_NOPASSWORD', 0.00, 0.000, 75.00, 100000.00, 'توفير مئة ألف يورو']
+      );
+      const userId = result.insertId;
+
+      const defaultBudgets = [
+        ['rent', 0.00],
+        ['groceries', 0.00],
+        ['utilities', 0.00],
+        ['transportation', 0.00],
+        ['health', 0.00],
+        ['entertainment', 0.00],
+        ['gold_buy', 0.00],
+        ['other_expense', 0.00]
+      ];
+
+      for (const b of defaultBudgets) {
+        await dbPool.query(
+          'INSERT INTO category_budgets (user_id, category_key, limit_amount) VALUES (?, ?, ?)',
+          [userId, b[0], b[1]]
+        );
+      }
+
+      return { userId, email, isNew: true };
+    }
+  } catch (error: any) {
+    console.error('❌ [Database] Error Google auth:', error);
+    throw error;
+  }
+}
+
+/**
+ * Admin: Get all users
+ */
+export async function adminGetAllUsers(): Promise<any[] | null> {
+  const dbPool = getDbPool();
+  if (!dbPool) return null;
+
+  try {
+    const [rows]: any = await dbPool.query(`
+      SELECT id, email, bank_balance as bankBalance, gold_grams as goldGrams, 
+             gold_price_per_gram as goldPricePerGram, goal_target as goalTarget, 
+             goal_title as goalTitle, created_at as createdAt 
+      FROM users 
+      ORDER BY id ASC
+    `);
+    return rows;
+  } catch (error) {
+    console.error('❌ [Database] Error fetching all users:', error);
+    throw error;
+  }
+}
+
+/**
+ * Admin: Delete user
+ */
+export async function adminDeleteUser(userId: number): Promise<boolean> {
+  const dbPool = getDbPool();
+  if (!dbPool) return false;
+
+  try {
+    await dbPool.query('DELETE FROM users WHERE id = ?', [userId]);
+    return true;
+  } catch (error) {
+    console.error(`❌ [Database] Error deleting user ${userId}:`, error);
+    throw error;
+  }
+}
+

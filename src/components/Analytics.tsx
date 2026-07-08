@@ -29,6 +29,8 @@ interface AnalyticsProps {
   transactions: Transaction[];
   isPremium?: boolean;
   onGoToBilling?: () => void;
+  customCategories?: { id: string; name: string; color: string }[];
+  customIncomeCategories?: { id: string; name: string; color: string }[];
 }
 
 const COLORS = [
@@ -58,7 +60,7 @@ const CATEGORY_NAMES_AR: { [key: string]: string } = {
   other_income: 'مصادر أخرى'
 };
 
-export default function Analytics({ transactions, isPremium, onGoToBilling }: AnalyticsProps) {
+export default function Analytics({ transactions, isPremium, onGoToBilling, customCategories, customIncomeCategories }: AnalyticsProps) {
   // 1. Total Expenses & Income
   const totalIncome = transactions
     .filter(t => t.type === 'income')
@@ -79,8 +81,16 @@ export default function Analytics({ transactions, isPremium, onGoToBilling }: An
       expenseByCategory[t.category] = (expenseByCategory[t.category] || 0) + t.amount;
     });
 
+  const getCategoryName = (catId: string) => {
+    if (CATEGORY_NAMES_AR[catId]) return CATEGORY_NAMES_AR[catId];
+    const custom = (customCategories || []).find(c => c.id === catId);
+    if (custom) return custom.name;
+    const customInc = (customIncomeCategories || []).find(c => c.id === catId);
+    return customInc ? customInc.name : catId;
+  };
+
   const pieData = Object.keys(expenseByCategory).map((catId, index) => ({
-    name: CATEGORY_NAMES_AR[catId] || catId,
+    name: getCategoryName(catId),
     value: expenseByCategory[catId],
     color: COLORS[index % COLORS.length]
   })).sort((a, b) => b.value - a.value);
@@ -223,14 +233,10 @@ export default function Analytics({ transactions, isPremium, onGoToBilling }: An
         {/* Export Report PDF Premium Trigger */}
         <button
           onClick={onGoToBilling}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-bold transition-all shadow-sm shrink-0 border ${
-            isPremium 
-              ? 'bg-emerald-600 border-emerald-500 hover:bg-emerald-700 text-white shadow-emerald-600/10 cursor-pointer' 
-              : 'bg-indigo-600 border-indigo-500 hover:bg-indigo-700 text-white shadow-indigo-600/10 cursor-pointer'
-          }`}
+          className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 border border-indigo-500 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/10 rounded-2xl text-xs font-bold transition-all shrink-0 cursor-pointer"
         >
           <FileText className="w-4 h-4" />
-          <span>{isPremium ? 'منشئ ومصدّر تقارير PDF 👑' : 'تصدير التقارير كـ PDF 👑'}</span>
+          <span>تصدير التقارير كـ PDF مجاناً ✨</span>
         </button>
       </div>
 

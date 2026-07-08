@@ -41,6 +41,7 @@ export default function SaaSModule({ appData, onUpdateSaaSTier, onAddTransaction
   const [cardName, setCardName] = useState('');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [showBillingSimulation, setShowBillingSimulation] = useState(false);
 
   // Report Builder State
   const [reportTitle, setReportTitle] = useState('التقرير المالي الموحد ومحفظة الاستثمار بالذهب');
@@ -137,9 +138,10 @@ export default function SaaSModule({ appData, onUpdateSaaSTier, onAddTransaction
         {/* Left Column: Pricing Plans or Premium Report Builder */}
         <div className="lg:col-span-8 space-y-6">
           
-          {!isPremium && !isCheckingOut ? (
-            /* SaaS Pricing Screen */
-            <div className="space-y-6">
+          {showBillingSimulation ? (
+            !isPremium && !isCheckingOut ? (
+              /* SaaS Pricing Screen */
+              <div className="space-y-6">
               <div className="bg-gradient-to-br from-[#0B132B] to-[#1C2A4A] p-8 rounded-3xl text-white text-right space-y-4 relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-64 h-64 bg-amber-500/10 rounded-full blur-[60px] pointer-events-none" />
                 <div className="inline-flex items-center gap-1.5 bg-amber-500/15 border border-amber-500/30 text-amber-400 px-3.5 py-1.5 rounded-full text-xs font-bold">
@@ -403,9 +405,18 @@ export default function SaaSModule({ appData, onUpdateSaaSTier, onAddTransaction
 
               </div>
             </div>
+            ) : null
           ) : (
             /* Premium Report Builder Screen */
             <div className="space-y-6">
+              
+              {/* Helpful info banner */}
+              <div className="bg-emerald-50 border border-emerald-100 p-4.5 rounded-2xl flex items-start gap-3 text-xs text-emerald-800 text-right leading-relaxed font-sans">
+                <span className="text-lg">✨</span>
+                <div>
+                  <span className="font-bold">ميزة مجانية بالكامل:</span> تم تفعيل نظام تصدير وتوليد التقارير المالية بصيغة PDF مجاناً لكافة الحسابات والمستشار الذكي (AI) لمساعدتك في التخطيط المالي وتتبع ثروتك بكل سهولة وأمان.
+                </div>
+              </div>
               
               {/* Report Configuration Panel */}
               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-xs space-y-6">
@@ -688,42 +699,51 @@ export default function SaaSModule({ appData, onUpdateSaaSTier, onAddTransaction
               </div>
               <div className="flex justify-between border-b border-slate-800 pb-2">
                 <span className="text-slate-400">تصدير تقارير PDF:</span>
-                <span className={`font-bold ${isPremium ? 'text-emerald-400' : 'text-amber-500'}`}>
-                  {isPremium ? 'مفعّل بالكامل ✓' : 'تتطلب الترقية 🔒'}
+                <span className="font-bold text-emerald-400">
+                  مفتوح ومجاني للجميع ✓
                 </span>
               </div>
               <div className="flex justify-between pb-2">
                 <span className="text-slate-400">نصائح الذكاء الاصطناعي:</span>
-                <span className={`font-bold ${isPremium ? 'text-emerald-400' : 'text-amber-500'}`}>
-                  {isPremium ? 'غير محدودة وأسرع ✓' : 'محدودة بقوة'}
+                <span className="font-bold text-emerald-400">
+                  غير محدودة ومفتوحة ✓
                 </span>
               </div>
             </div>
 
             {/* Premium action toggles or simulation tool */}
-            {isPremium ? (
-              <div className="space-y-3 pt-2">
-                <button
-                  onClick={() => {
-                    onUpdateSaaSTier('free');
-                    setIsCheckingOut(false);
-                    setPaymentSuccess(false);
-                  }}
-                  className="w-full bg-slate-800 hover:bg-slate-700 text-rose-400 hover:text-rose-300 font-bold py-2.5 px-4 rounded-xl text-xs transition-all border border-slate-800"
-                >
-                  إلغاء تنشيط الباقة والعودة للمجانية
-                </button>
-                <p className="text-[10px] text-slate-500 text-center leading-relaxed">
-                  بإلغاء تفعيل الباقة، ستعود لحسابك الأساسي، وسيتم حظر تصدير الـ PDF والمستشار المساعد مجدداً.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2 text-[10px] text-slate-400 leading-relaxed bg-slate-950 p-4 rounded-2xl border border-slate-850">
-                <p>
-                  🛡️ <strong className="text-slate-200">الأمان والتوافقية:</strong> التطبيق مصمم ليكون متوافقاً تماماً مع جميع خوادم الويب واستضافات Hostinger. يتم حفظ كافة معلومات العضوية والفواتير والقيود داخل مخزنك المحلي الآمن والمشفر دون مشاركتها خارج جهازك.
-                </p>
-              </div>
-            )}
+            <div className="space-y-3 pt-2">
+              <button
+                onClick={() => setShowBillingSimulation(!showBillingSimulation)}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all border border-indigo-600 cursor-pointer"
+              >
+                {showBillingSimulation ? 'الذهاب لمنشئ التقارير 📄' : '💳 بوابة محاكاة الدفع والترقية'}
+              </button>
+
+              {isPremium ? (
+                <>
+                  <button
+                    onClick={() => {
+                      onUpdateSaaSTier('free');
+                      setIsCheckingOut(false);
+                      setPaymentSuccess(false);
+                    }}
+                    className="w-full bg-slate-800 hover:bg-slate-700 text-rose-400 hover:text-rose-300 font-bold py-2 px-4 rounded-xl text-[10px] transition-all border border-slate-800 cursor-pointer"
+                  >
+                    إعادة تعيين الباقة للمجانية
+                  </button>
+                  <p className="text-[10px] text-slate-500 text-center leading-relaxed">
+                    تم محاكاة الترقية بنجاح وتفعيل الاشتراك بالكامل.
+                  </p>
+                </>
+              ) : (
+                <div className="space-y-2 text-[10px] text-slate-400 leading-relaxed bg-slate-950 p-4 rounded-2xl border border-slate-850">
+                  <p>
+                    🛡️ <strong className="text-slate-200">الأمان والتوافقية:</strong> التطبيق مصمم ليكون متوافقاً تماماً مع جميع خوادم الويب واستضافات Hostinger. يتم حفظ كافة معلومات العضوية والفواتير والقيود داخل مخزنك المحلي الآمن والمشفر دون مشاركتها خارج جهازك.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

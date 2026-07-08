@@ -11,7 +11,10 @@ import {
   AlertCircle,
   TrendingDown,
   TrendingUp,
-  Tag
+  Tag,
+  Edit2,
+  Check,
+  X
 } from 'lucide-react';
 import { Transaction, GoldState } from '../types';
 
@@ -20,6 +23,11 @@ interface LedgerProps {
   gold: GoldState;
   onAddTransaction: (transaction: Omit<Transaction, 'id'>) => void;
   onDeleteTransaction: (id: string) => void;
+  customCategories?: { id: string; name: string; color: string }[];
+  customIncomeCategories?: { id: string; name: string; color: string }[];
+  onAddCustomCategory?: (name: string, type: 'income' | 'expense') => void;
+  onEditCustomCategory?: (id: string, name: string, type: 'income' | 'expense') => void;
+  onDeleteCustomCategory?: (id: string, type: 'income' | 'expense') => void;
 }
 
 const EXPENSE_CATEGORIES = [
@@ -33,6 +41,7 @@ const EXPENSE_CATEGORIES = [
   { id: 'shopping', name: 'تسوق وملابس', color: 'bg-fuchsia-50 text-fuchsia-700' },
   { id: 'dining', name: 'مطاعم ومقاهي', color: 'bg-yellow-50 text-yellow-800' },
   { id: 'gold_buy', name: 'شراء ذهب عيار 24', color: 'bg-amber-50 text-amber-700 border border-amber-200' },
+  { id: 'transfer_to_bank', name: 'تحويل إلى حساب البنك 📥', color: 'bg-blue-50 text-blue-700 border border-blue-200' },
   { id: 'other_expense', name: 'مصاريف أخرى', color: 'bg-gray-50 text-gray-700' }
 ];
 
@@ -42,6 +51,7 @@ const INCOME_CATEGORIES = [
   { id: 'freelance', name: 'عمل حر / دخل إضافي', color: 'bg-purple-50 text-purple-700' },
   { id: 'gifts', name: 'هدايا ومكافآت', color: 'bg-pink-50 text-pink-700' },
   { id: 'gold_sell', name: 'بيع ذهب عيار 24', color: 'bg-amber-50 text-amber-800 border border-amber-200' },
+  { id: 'transfer_to_cash', name: 'تحويل إلى الكاش المتوفر 📤', color: 'bg-teal-50 text-teal-700 border border-teal-200' },
   { id: 'other_income', name: 'مصادر أخرى', color: 'bg-gray-50 text-gray-700' }
 ];
 
@@ -49,7 +59,12 @@ export default function Ledger({
   transactions,
   gold,
   onAddTransaction,
-  onDeleteTransaction
+  onDeleteTransaction,
+  customCategories = [],
+  customIncomeCategories = [],
+  onAddCustomCategory,
+  onEditCustomCategory,
+  onDeleteCustomCategory
 }: LedgerProps) {
   // Form State
   const [type, setType] = useState<'income' | 'expense'>('expense');
@@ -60,6 +75,25 @@ export default function Ledger({
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'transfer'>('card');
   const [goldGrams, setGoldGrams] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Custom Category State
+  const [showAddCat, setShowAddCat] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [editingCatId, setEditingCatId] = useState<string | null>(null);
+  const [editingCatName, setEditingCatName] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // Combined categories list for expense
+  const expenseCategoriesList = [
+    ...EXPENSE_CATEGORIES,
+    ...(customCategories || [])
+  ];
+
+  // Combined categories list for income
+  const incomeCategoriesList = [
+    ...INCOME_CATEGORIES,
+    ...(customIncomeCategories || [])
+  ];
 
   // Filter State
   const [searchTerm, setSearchTerm] = useState('');
@@ -142,15 +176,36 @@ export default function Ledger({
       grams = parsedGrams;
     }
 
+    let finalAccount: 'bank' | 'cash' | 'gold_purchase' | 'gold_sale' = 'bank';
+    let finalPaymentMethod: 'cash' | 'card' | 'transfer' | undefined = paymentMethod;
+
+    if (category === 'gold_buy') {
+      finalAccount = 'gold_purchase';
+      finalPaymentMethod = undefined;
+    } else if (category === 'gold_sell') {
+      finalAccount = 'gold_sale';
+      finalPaymentMethod = undefined;
+    } else if (category === 'transfer_to_bank') {
+      finalAccount = 'bank';
+      finalPaymentMethod = 'cash';
+    } else if (category === 'transfer_to_cash') {
+      finalAccount = 'cash';
+      finalPaymentMethod = 'transfer';
+    }
+
     onAddTransaction({
       date,
       type,
       amount: parsedAmount,
       category,
-      description: description || (type === 'expense' ? 'مصروف يومي' : 'دخل إضافي'),
-      account: category === 'gold_buy' ? 'gold_purchase' : category === 'gold_sell' ? 'gold_sale' : 'bank',
+      description: description || (
+        category === 'transfer_to_bank' ? 'تحويل من الكاش إلى حساب البنك' :
+        category === 'transfer_to_cash' ? 'تحويل من حساب البنك إلى الكاش' :
+        (type === 'expense' ? 'مصروف يومي' : 'دخل إضافي')
+      ),
+      account: finalAccount,
       goldGrams: grams,
-      paymentMethod: category === 'gold_buy' || category === 'gold_sell' ? undefined : paymentMethod
+      paymentMethod: finalPaymentMethod
     });
 
     // Reset Form
@@ -171,7 +226,13 @@ export default function Ledger({
   });
 
   const getCategoryDetails = (catId: string, transType: 'income' | 'expense') => {
-    const list = transType === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
+    if (catId === 'transfer_to_bank') {
+      return { name: 'تحويل إلى البنك 📥', color: 'bg-blue-100 text-blue-800' };
+    }
+    if (catId === 'transfer_to_cash') {
+      return { name: 'تحويل إلى الكاش 📤', color: 'bg-teal-100 text-teal-800' };
+    }
+    const list = transType === 'expense' ? expenseCategoriesList : incomeCategoriesList;
     return list.find(c => c.id === catId) || { name: catId, color: 'bg-gray-100 text-gray-700' };
   };
 
@@ -235,17 +296,180 @@ export default function Ledger({
 
           {/* Category Dropdown */}
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5">القسم / الفئة</label>
+            <div className="flex justify-between items-center mb-1.5">
+              <label className="block text-xs font-bold text-gray-700">القسم / الفئة</label>
+            </div>
             <select
               value={category}
               onChange={handleCategoryChange}
               className="w-full px-4 py-3 border border-gray-200 rounded-2xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               {type === 'expense'
-                ? EXPENSE_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.name}</option>)
-                : INCOME_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.name}</option>)
+                ? expenseCategoriesList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)
+                : incomeCategoriesList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)
               }
             </select>
+
+            <div className="mt-2 text-left">
+              {!showAddCat ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAddCat(true)}
+                  className={`text-[11px] px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    type === 'expense'
+                      ? 'text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100'
+                      : 'text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100'
+                  }`}
+                >
+                  {type === 'expense' ? '➕ إنشاء مصروف أو قسم مخصص جديد' : '➕ إنشاء مصدر دخل أو إيداع مخصص جديد'}
+                </button>
+              ) : (
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/60 space-y-2 mt-2">
+                  <label className="block text-[10px] font-bold text-slate-500">
+                    {type === 'expense' ? 'اسم المصروف أو القسم الجديد' : 'اسم مصدر الدخل الجديد'}
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newCatName}
+                      onChange={(e) => setNewCatName(e.target.value)}
+                      placeholder={type === 'expense' ? 'مثال: اشتراك نتفليكس، نادي رياضي...' : 'مثال: دخل يوتيوب، إيجار محل، عمولة...'}
+                      className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 font-sans"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newCatName.trim() && onAddCustomCategory) {
+                          onAddCustomCategory(newCatName.trim(), type);
+                          setNewCatName('');
+                          setShowAddCat(false);
+                        }
+                      }}
+                      className={`font-bold px-3 py-1.5 rounded-lg text-xs cursor-pointer text-white ${
+                        type === 'expense' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                      }`}
+                    >
+                      إضافة
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddCat(false)}
+                      className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-2 py-1.5 rounded-lg text-xs cursor-pointer"
+                    >
+                      إلغاء
+                    </button>
+                  </div>
+
+                  {/* Existing Custom Categories List */}
+                  {((type === 'expense' ? customCategories : customIncomeCategories) || []).length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-200/50 space-y-1.5 text-right">
+                      <span className="block text-[10px] font-black text-slate-400">الفئات المخصصة الحالية (إعادة تسمية أو حذف):</span>
+                      <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
+                        {((type === 'expense' ? customCategories : customIncomeCategories) || []).map((cat) => {
+                          const isEditing = editingCatId === cat.id;
+                          return (
+                            <div key={cat.id} className="flex items-center justify-between gap-2 p-2 bg-white border border-slate-200/60 rounded-xl text-xs">
+                              {isEditing ? (
+                                <div className="flex items-center gap-1.5 w-full">
+                                  <input
+                                    type="text"
+                                    value={editingCatName}
+                                    onChange={(e) => setEditingCatName(e.target.value)}
+                                    className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-sans"
+                                    autoFocus
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (editingCatName.trim() && onEditCustomCategory) {
+                                        onEditCustomCategory(cat.id, editingCatName.trim(), type);
+                                        setEditingCatId(null);
+                                      }
+                                    }}
+                                    className="p-1 text-emerald-600 hover:bg-emerald-50 rounded-lg cursor-pointer"
+                                    title="حفظ التعديل"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingCatId(null)}
+                                    className="p-1 text-slate-400 hover:bg-slate-100 rounded-lg cursor-pointer"
+                                    title="إلغاء"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : deleteConfirmId === cat.id ? (
+                                <div className="flex items-center justify-between w-full bg-rose-50/55 p-1 px-2 rounded-lg border border-rose-100 animate-fade-in">
+                                  <span className="text-[10px] text-rose-700 font-bold">تأكيد حذف "{cat.name}"؟</span>
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (onDeleteCustomCategory) {
+                                          onDeleteCustomCategory(cat.id, type);
+                                          if (category === cat.id) {
+                                            setCategory(type === 'expense' ? EXPENSE_CATEGORIES[0].id : INCOME_CATEGORIES[0].id);
+                                          }
+                                        }
+                                        setDeleteConfirmId(null);
+                                      }}
+                                      className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[10px] font-bold transition-all cursor-pointer"
+                                    >
+                                      حذف
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setDeleteConfirmId(null)}
+                                      className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[10px] font-bold transition-all cursor-pointer"
+                                    >
+                                      إلغاء
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`w-2 h-2 rounded-full ${type === 'expense' ? 'bg-indigo-500' : 'bg-emerald-500'}`} />
+                                    <span className="font-bold text-slate-700">{cat.name}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingCatId(cat.id);
+                                        setEditingCatName(cat.name);
+                                        setDeleteConfirmId(null);
+                                      }}
+                                      className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 rounded-lg transition-all cursor-pointer"
+                                      title="تعديل الاسم"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setDeleteConfirmId(cat.id);
+                                        setEditingCatId(null);
+                                      }}
+                                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-slate-50 rounded-lg transition-all cursor-pointer"
+                                      title="حذف الفئة"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Gold Parameters (Conditional) */}
@@ -416,7 +640,7 @@ export default function Ledger({
             >
               <option value="all">كل الفئات والأقسام</option>
               <optgroup label="المصاريف">
-                {EXPENSE_CATEGORIES.map(c => (
+                {expenseCategoriesList.map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </optgroup>
@@ -446,11 +670,11 @@ export default function Ledger({
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className="flex items-center justify-between p-4 bg-white border border-gray-50 hover:border-gray-100 rounded-2xl transition-all shadow-2xs hover:shadow-xs"
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-white border border-gray-50 hover:border-gray-100 rounded-2xl transition-all shadow-2xs hover:shadow-xs"
                 >
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3 sm:gap-4">
                     {/* Icon indicating type */}
-                    <div className={`p-2 rounded-xl ${
+                    <div className={`p-2 rounded-xl shrink-0 ${
                       t.type === 'income' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
                     }`}>
                       {t.type === 'income' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
@@ -458,7 +682,7 @@ export default function Ledger({
 
                     {/* Details */}
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                         <span className="font-bold text-gray-800 text-sm leading-tight">{t.description}</span>
                         <span className={`text-[10px] px-2 py-0.5 rounded-md font-medium ${catDetails.color}`}>
                           {catDetails.name}
@@ -480,13 +704,13 @@ export default function Ledger({
                           {t.date}
                         </span>
                         <span>•</span>
-                        <span>الحساب: {t.account === 'bank' ? 'البنك' : 'الذهب عيار 24'}</span>
+                        <span>الحساب: {t.account === 'bank' ? 'البنك' : t.account === 'cash' ? 'خزنة الكاش' : 'الذهب عيار 24'}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Right: Amount and Delete */}
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto border-t sm:border-t-0 pt-2.5 sm:pt-0 border-gray-100">
                     <span className={`text-sm font-mono font-bold ${
                       t.type === 'income' ? 'text-emerald-600' : 'text-rose-600'
                     }`}>
