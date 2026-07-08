@@ -25,6 +25,7 @@ import {
   Info
 } from 'lucide-react';
 import MySQLInstaller from './MySQLInstaller';
+import { getApiUrl } from '../apiClient';
 
 interface LandingPageProps {
   onLoginSuccess: (email: string, userId?: number, remoteState?: any) => void;
@@ -61,7 +62,7 @@ export default function LandingPage({ onLoginSuccess }: LandingPageProps) {
     setShowGoogleModal(false);
 
     try {
-      const response = await fetch('/api/auth/google', {
+      const response = await fetch(getApiUrl('api/auth/google'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: googleEmail.toLowerCase() })
@@ -102,8 +103,8 @@ export default function LandingPage({ onLoginSuccess }: LandingPageProps) {
     }
 
     try {
-      const endpoint = isRegister ? '/api/auth/register' : '/api/auth/login';
-      const response = await fetch(endpoint, {
+      const endpoint = isRegister ? 'api/auth/register' : 'api/auth/login';
+      const response = await fetch(getApiUrl(endpoint), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })

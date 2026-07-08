@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Cpu
 } from 'lucide-react';
+import { getApiUrl } from '../apiClient';
 
 interface MySQLInstallerProps {
   isOpen: boolean;
@@ -39,7 +40,7 @@ export default function MySQLInstaller({ isOpen, onClose, onInstallSuccess }: My
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/install', {
+      const response = await fetch(getApiUrl('api/install'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

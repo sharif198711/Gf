@@ -15,6 +15,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { AppData, Transaction } from '../types';
+import { getApiUrl } from '../apiClient';
 
 interface AdminUser {
   id: number;
@@ -58,7 +59,7 @@ export default function AdminPanel({ adminEmail }: AdminPanelProps) {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/admin/users?adminEmail=${encodeURIComponent(adminEmail)}`);
+      const response = await fetch(getApiUrl(`api/admin/users?adminEmail=${encodeURIComponent(adminEmail)}`));
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || 'فشل تحميل الأعضاء.');
@@ -83,7 +84,7 @@ export default function AdminPanel({ adminEmail }: AdminPanelProps) {
     }
 
     try {
-      const response = await fetch(`/api/admin/user/${userId}?adminEmail=${encodeURIComponent(adminEmail)}`, {
+      const response = await fetch(getApiUrl(`api/admin/user/${userId}?adminEmail=${encodeURIComponent(adminEmail)}`), {
         method: 'DELETE'
       });
       if (!response.ok) {
@@ -107,7 +108,7 @@ export default function AdminPanel({ adminEmail }: AdminPanelProps) {
     setIsLoadingState(true);
     setSelectedUserState(null);
     try {
-      const response = await fetch(`/api/admin/user/${user.id}/state?adminEmail=${encodeURIComponent(adminEmail)}`);
+      const response = await fetch(getApiUrl(`api/admin/user/${user.id}/state?adminEmail=${encodeURIComponent(adminEmail)}`));
       if (!response.ok) {
         throw new Error('فشل تحميل السجل المالي التفصيلي.');
       }
@@ -146,7 +147,7 @@ export default function AdminPanel({ adminEmail }: AdminPanelProps) {
         }
       };
 
-      const response = await fetch(`/api/admin/user/${selectedUser.id}/update-state`, {
+      const response = await fetch(getApiUrl(`api/admin/user/${selectedUser.id}/update-state`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

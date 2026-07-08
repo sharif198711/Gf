@@ -13,6 +13,7 @@ import {
   PiggyBank
 } from 'lucide-react';
 import { AppData, Transaction } from '../types';
+import { getApiUrl } from '../apiClient';
 
 interface AiAdvisorProps {
   appData: AppData;
@@ -50,7 +51,7 @@ export default function AiAdvisor({ appData }: AiAdvisorProps) {
     setIsAnalyzing(true);
     setAnalysisError('');
     try {
-      const response = await fetch('/api/ai/analyze', {
+      const response = await fetch(getApiUrl('api/ai/analyze'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -91,7 +92,7 @@ export default function AiAdvisor({ appData }: AiAdvisorProps) {
     setIsSending(true);
 
     try {
-      const response = await fetch('/api/ai/chat', {
+      const response = await fetch(getApiUrl('api/ai/chat'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

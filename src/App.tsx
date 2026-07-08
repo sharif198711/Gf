@@ -15,6 +15,7 @@ import {
   Award
 } from 'lucide-react';
 import { AppData, Transaction, GoldState, SavingsGoal } from './types';
+import { getApiUrl } from './apiClient';
 import Dashboard from './components/Dashboard';
 import Ledger from './components/Ledger';
 import Analytics from './components/Analytics';
@@ -147,7 +148,7 @@ export default function App() {
 
   // Check database connectivity on mount
   useEffect(() => {
-    fetch('/api/db-status')
+    fetch(getApiUrl('api/db-status'))
       .then(res => res.json())
       .then(data => {
         setIsDbConnected(data.connected);
@@ -213,7 +214,7 @@ export default function App() {
 
     const activeUserId = forceUserId !== undefined ? forceUserId : dbUserId;
     if (activeUserId) {
-      fetch('/api/sync/save', {
+      fetch(getApiUrl('api/sync/save'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: activeUserId, state: newData })
