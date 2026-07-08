@@ -39,11 +39,102 @@ if (file_exists(__DIR__ . '/db_config.php')) {
             $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
             $db_connected = true;
 
-            // Dynamically add cash_balance column to users table if it doesn't exist
+            // Automatically check and create tables on the first request if they do not exist
             try {
-                $pdo->exec("ALTER TABLE users ADD COLUMN cash_balance DECIMAL(15, 2) DEFAULT 0.00");
+                $check_stmt = $pdo->query("SHOW TABLES LIKE 'users'");
+                if ($check_stmt->rowCount() === 0) {
+                    // Create users table
+                    $pdo->exec("CREATE TABLE IF NOT EXISTS users (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        email VARCHAR(255) UNIQUE NOT NULL,
+                        password VARCHAR(255) NOT NULL,
+                        bank_balance DECIMAL(15, 2) DEFAULT 0.00,
+                        cash_balance DECIMAL(15, 2) DEFAULT 0.00,
+                        gold_grams DECIMAL(10, 3) DEFAULT 0.000,
+                        gold_price_per_gram DECIMAL(10, 2) DEFAULT 75.00,
+                        goal_target DECIMAL(15, 2) DEFAULT 100000.00,
+                        goal_title VARCHAR(255) DEFAULT 'توفير مئة ألف يورو',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                    // Create transactions table
+                    $pdo->exec("CREATE TABLE IF NOT EXISTS transactions (
+                        id VARCHAR(50) PRIMARY KEY,
+                        user_id INT NOT NULL,
+                        date DATE NOT NULL,
+                        type VARCHAR(20) NOT NULL,
+                        amount DECIMAL(15, 2) NOT NULL,
+                        category VARCHAR(100) NOT NULL,
+                        description VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                        account VARCHAR(100) NOT NULL,
+                        gold_grams DECIMAL(10, 3) DEFAULT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                    // Create category_budgets table
+                    $pdo->exec("CREATE TABLE IF NOT EXISTS category_budgets (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        user_id INT NOT NULL,
+                        category_key VARCHAR(100) NOT NULL,
+                        limit_amount DECIMAL(15, 2) NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY unique_user_category (user_id, category_key),
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+                    // Insert default admin user: admin@hassala.com
+                    $stmt_insert_user = $pdo->prepare("INSERT INTO users (email, password, bank_balance, cash_balance, gold_grams, gold_price_per_gram, goal_target, goal_title) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmt_insert_user->execute([
+                        'admin@hassala.com',
+                        '123456',
+                        1980.00,
+                        0.00,
+                        10.000,
+                        75.00,
+                        100000.00,
+                        'توفير مئة ألف يورو'
+                    ]);
+                    $user_id = $pdo->lastInsertId();
+
+                    // Insert sample transactions
+                    $sample_txs = [
+                        ['init-1', $user_id, date('Y-m-d', strtotime('-10 days')), 'income', 4200.00, 'salary', 'الراتب الشهري الأساسي', 'bank', null],
+                        ['init-2', $user_id, date('Y-m-d', strtotime('-9 days')), 'expense', 1100.00, 'rent', 'إيجار شقة السكن لشهر يونيو', 'bank', null],
+                        ['init-3', $user_id, date('Y-m-d', strtotime('-7 days')), 'expense', 150.00, 'utilities', 'فاتورة الكهرباء والغاز والانترنت والماء', 'bank', null],
+                        ['init-4', $user_id, date('Y-m-d', strtotime('-5 days')), 'expense', 750.00, 'gold_buy', 'ادخار وشراء سبيكة ذهب عيار 24', 'gold_purchase', 10.000],
+                        ['init-5', $user_id, date('Y-m-d', strtotime('-2 days')), 'expense', 220.00, 'groceries', 'مقاضي ومواد غذائية ولحوم للبيت', 'bank', null]
+                    ];
+                    $stmt_tx_insert = $pdo->prepare("INSERT INTO transactions (id, user_id, date, type, amount, category, description, account, gold_grams) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    foreach ($sample_txs as $tx) {
+                        $stmt_tx_insert->execute($tx);
+                    }
+
+                    // Insert budgets
+                    $sample_budgets = [
+                        ['rent', 1200.00],
+                        ['groceries', 400.00],
+                        ['utilities', 200.00],
+                        ['transportation', 150.00],
+                        ['health', 100.00],
+                        ['entertainment', 250.00],
+                        ['gold_buy', 1000.00],
+                        ['other_expense', 300.00]
+                    ];
+                    $stmt_budget_insert = $pdo->prepare("INSERT INTO category_budgets (user_id, category_key, limit_amount) VALUES (?, ?, ?)");
+                    foreach ($sample_budgets as $bg) {
+                        $stmt_budget_insert->execute([$user_id, $bg[0], $bg[1]]);
+                    }
+                } else {
+                    // Table exists, ensure cash_balance column is added
+                    try {
+                        $pdo->exec("ALTER TABLE users ADD COLUMN cash_balance DECIMAL(15, 2) DEFAULT 0.00");
+                    } catch (PDOException $e) {
+                        // ignore if already exists
+                    }
+                }
             } catch (PDOException $e) {
-                // Column already exists or table doesn't exist yet, ignore
+                // ignore or handle connection issues silently
             }
         }
     } catch (PDOException $e) {
