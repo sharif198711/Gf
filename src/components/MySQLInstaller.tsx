@@ -55,18 +55,34 @@ export default function MySQLInstaller({ isOpen, onClose, onInstallSuccess }: My
         geminiApiKey
       };
 
-      const response = await fetch(getApiUrl('api/install'), {
+      const response = await fetch(getApiUrl('api/dbsetup'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
+      const responseText = await response.text();
       let data: any;
       try {
-        data = await response.json();
+        data = JSON.parse(responseText);
       } catch (jsonErr) {
-        console.error('Failed to parse JSON response:', jsonErr);
-        throw new Error('تلقى التطبيق استجابة غير صالحة من السيرفر. قد يكون هناك جدار حماية يمنع الطلب أو مشكلة في إعدادات PHP الخاصة بالسيرفر. يرجى مراجعة الدعم أو تجربة الربط اليدوي بقاعدة بيانات MySQL.');
+        console.error('Failed to parse JSON response:', jsonErr, 'Raw response:', responseText);
+        
+        let customError = 'تلقى التطبيق استجابة غير صالحة (ليست JSON) من السيرفر.';
+        
+        if (responseText.includes('<title>') && responseText.includes('</title>')) {
+          const match = responseText.match(/<title>(.*?)<\/title>/i);
+          if (match && match[1]) {
+            customError += ` (عنوان الخطأ: ${match[1]})`;
+          }
+        } else if (responseText.trim().length > 0) {
+          // Show up to 150 characters of the raw response
+          const preview = responseText.trim().substring(0, 150);
+          customError += ` (محتوى الاستجابة: "${preview}...")`;
+        }
+        
+        customError += ' قد يكون هناك جدار حماية (ModSecurity) يمنع طلبات POST البرمجية أو إصدار PHP غير متوافق. يرجى مراجعة الاستضافة أو استخدام قاعدة بيانات MySQL عن طريق الربط اليدوي مباشرة.';
+        throw new Error(customError);
       }
 
       if (!response.ok || data.error) {

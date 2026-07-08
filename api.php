@@ -356,9 +356,9 @@ if ($route === 'db-status') {
 $input_data = json_decode(file_get_contents('php://input'), true);
 
 // ---------------------------------------------------------
-// ROUTE: INSTALL (Automatic DB setup from within the App)
+// ROUTE: INSTALL / DBSETUP (Automatic DB setup from within the App)
 // ---------------------------------------------------------
-if ($route === 'install') {
+if ($route === 'install' || $route === 'dbsetup') {
     // Check if main directory is writable
     if (!is_writable(__DIR__)) {
         echo json_encode(["error" => "مجلد التطبيق الرئيسي غير قابل للكتابة (Permission Denied). يرجى مراجعة صلاحيات المجلد من مدير ملفات الاستضافة (File Manager) في لوحة تحكم Hostinger وتعيين الصلاحية الموصى بها (عادة 755 للمجلدات و 644 للملفات) ليتمكن التطبيق من إنشاء ملف الإعدادات وقاعدة بيانات SQLite بنجاح."]);
