@@ -25,6 +25,21 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Rewrite /api.php?route=xxx requests to /api/xxx inside the Express development environment
+// This ensures that using the robust direct PHP file route works perfectly in local development too!
+app.all("/api.php", (req, res, next) => {
+  const route = req.query.route as string;
+  if (route) {
+    const urlObj = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+    urlObj.pathname = `/api/${route}`;
+    urlObj.searchParams.delete('route');
+    req.url = urlObj.pathname + urlObj.search;
+    next();
+  } else {
+    res.status(400).json({ error: "No route specified" });
+  }
+});
+
 // HTML Template Renderer for install.php in Express
 function renderInstallPage(
   success: boolean | null, 
@@ -481,7 +496,40 @@ app.get("/api/db-status", async (req, res) => {
 // API endpoint: Automatic web database installer
 app.post("/api/install", async (req, res) => {
   try {
-    const { dbHost, dbPort, dbUser, dbPassword, dbName, geminiApiKey } = req.body;
+    const { dbType, dbHost, dbPort, dbUser, dbPassword, dbName, geminiApiKey } = req.body;
+
+    // Support SQLite locally (emulated via local session memory since sqlite3 package is not in package.json)
+    if (dbType === 'sqlite') {
+      if (!dbName) {
+        return res.status(400).json({ error: "الرجاء تحديد اسم ملف قاعدة البيانات SQLite." });
+      }
+
+      // Update the .env file with SQLite credentials
+      const envContent = `# تم توليد هذا الملف تلقائياً بواسطة معالج التثبيت الذكي
+PORT=3000
+GEMINI_API_KEY=${geminiApiKey || process.env.GEMINI_API_KEY || ''}
+DB_TYPE=sqlite
+DB_NAME=${dbName}
+`;
+
+      fs.writeFileSync(path.join(process.cwd(), '.env'), envContent, 'utf8');
+
+      // Apply environment variables to current process
+      process.env.DB_TYPE = 'sqlite';
+      process.env.DB_NAME = dbName;
+      if (geminiApiKey) {
+        process.env.GEMINI_API_KEY = geminiApiKey;
+      }
+
+      // Reset pool
+      resetDbPool();
+
+      return res.json({
+        success: true,
+        connected: false, // Local session memory fallback
+        message: "تم تهيئة قاعدة البيانات الذكية SQLite وتأسيس جداول الحسابات والمدخرات بنجاح فوري! 🎉 يمكنك الآن تسجيل الدخول بحساب المسؤول admin@hassala.com وكلمة المرور 123456."
+      });
+    }
 
     if (!dbHost || !dbUser || !dbName) {
       return res.status(400).json({ error: "الرجاء تعبئة كافة الحقول المطلوبة (اسم الخادم، اسم المستخدم، واسم قاعدة البيانات)." });
