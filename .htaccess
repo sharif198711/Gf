@@ -13,7 +13,12 @@
   RewriteRule ^db_config\.php$ - [L]
   RewriteRule ^.*\.sqlite$ - [L]
 
-  # 3. Serve physical files from dist folder if they exist there
+  # 3. Force root and index.html to serve from the compiled dist/ directory
+  # This ensures we bypass the uncompiled root index.html file!
+  RewriteRule ^$ dist/index.html [L]
+  RewriteRule ^index\.html$ dist/index.html [L]
+
+  # 4. Serve physical files from dist folder if they exist there
   # (e.g., assets/index-xxx.js -> dist/assets/index-xxx.js)
   RewriteCond %{DOCUMENT_ROOT}/$1 -f
   RewriteRule ^(dist/.*)$ $1 [L]
@@ -23,8 +28,19 @@
   RewriteCond %{REQUEST_URI} !^/dist/
   RewriteRule ^(.*)$ dist/$1 [L]
 
-  # 4. Support standard SPA React routing fallback to dist/index.html
+  # 5. Support standard SPA React routing fallback to dist/index.html
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . dist/index.html [L]
 </IfModule>
+
+# Block direct access to SQLite database files for complete security!
+<FilesMatch "\.sqlite$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
