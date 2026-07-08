@@ -164,6 +164,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $logs[] = "✅ تم إعداد ميزانيات الفئات بنجاح.";
             $logs[] = "🎉 اكتملت عملية التهيئة والتثبيت لقاعدة البيانات بنجاح!";
 
+            // Save configuration for api.php to read
+            $db_config_code = "<?php\n"
+                . "// تم توليد هذا الملف تلقائياً بواسطة معالج التثبيت\n"
+                . "define('DB_HOST', '" . addslashes($db_host) . "');\n"
+                . "define('DB_NAME', '" . addslashes($db_name) . "');\n"
+                . "define('DB_USER', '" . addslashes($db_user) . "');\n"
+                . "define('DB_PASS', '" . addslashes($db_pass) . "');\n"
+                . "define('GEMINI_API_KEY', ''); // يمكنك وضع مفتاح Gemini هنا لتشغيل الذكاء الاصطناعي\n";
+            file_put_contents('db_config.php', $db_config_code);
+            $logs[] = "✅ تم حفظ إعدادات الاتصال في ملف `db_config.php` بنجاح لتشغيل الـ API في الاستضافة.";
+
             $installation_success = true;
 
         } catch (PDOException $e) {

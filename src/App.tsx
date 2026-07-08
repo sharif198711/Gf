@@ -31,6 +31,16 @@ const LOCAL_STORAGE_KEY = 'gold_savings_tracker_data_v2';
 const DEFAULT_APP_DATA: AppData = {
   transactions: [
     {
+      id: 'init-0',
+      date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 11).toISOString().substring(0, 10), // 11 days ago
+      type: 'income',
+      amount: 500.00,
+      category: 'other_income',
+      description: 'الرصيد النقدي الافتتاحي (كاش)',
+      account: 'cash',
+      paymentMethod: 'cash'
+    },
+    {
       id: 'init-1',
       date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString().substring(0, 10), // 10 days ago
       type: 'income',
@@ -303,6 +313,10 @@ export default function App() {
       }
     }
 
+    finalBankBalance = Math.round(finalBankBalance * 100) / 100;
+    finalCashBalance = Math.round(finalCashBalance * 100) / 100;
+    finalGoldGrams = Math.round(finalGoldGrams * 1000) / 1000;
+
     const updatedData: AppData = {
       ...appData,
       transactions: [transaction, ...appData.transactions],
@@ -362,6 +376,10 @@ export default function App() {
         }
       }
     }
+
+    finalBankBalance = Math.round(finalBankBalance * 100) / 100;
+    finalCashBalance = Math.round(finalCashBalance * 100) / 100;
+    finalGoldGrams = Math.round(finalGoldGrams * 1000) / 1000;
 
     const updatedData: AppData = {
       ...appData,

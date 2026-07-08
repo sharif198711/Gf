@@ -90,6 +90,10 @@ export default function Dashboard({
   const [transferError, setTransferError] = useState('');
   const [transferSuccess, setTransferSuccess] = useState('');
 
+  // Account Audit and Reconciliation states
+  const [showAuditTool, setShowAuditTool] = useState(false);
+  const [auditSuccess, setAuditSuccess] = useState<string | null>(null);
+
   // Combined expense categories map (including custom categories)
   const allExpenseCategoriesMap: { [key: string]: { name: string; icon: string; color: string } } = {
     ...EXPENSE_CATEGORIES_AR,
@@ -108,6 +112,112 @@ export default function Dashboard({
   // Calculate financial metrics
   const totalGoldValue = gold.grams * gold.currentPricePerGram;
   const totalNetWorth = bankBalance + (cashBalance !== undefined ? cashBalance : 0.00) + totalGoldValue;
+
+  // Audit calculations (Dynamically calculated balances from full transaction history)
+  const calculatedBank = transactions.reduce((sum, t) => {
+    if (t.category === 'transfer_to_bank') {
+      return sum + t.amount;
+    }
+    if (t.category === 'transfer_to_cash') {
+      return sum - t.amount;
+    }
+    if (t.paymentMethod !== 'cash') {
+      if (t.type === 'income') {
+        return sum + t.amount;
+      } else {
+        return sum - t.amount;
+      }
+    }
+    return sum;
+  }, 0);
+
+  const calculatedCash = transactions.reduce((sum, t) => {
+    if (t.category === 'transfer_to_bank') {
+      return sum - t.amount;
+    }
+    if (t.category === 'transfer_to_cash') {
+      return sum + t.amount;
+    }
+    if (t.paymentMethod === 'cash') {
+      if (t.type === 'income') {
+        return sum + t.amount;
+      } else {
+        return sum - t.amount;
+      }
+    }
+    return sum;
+  }, 0);
+
+  const calculatedGold = transactions.reduce((sum, t) => {
+    if (t.category === 'gold_buy' && t.goldGrams) {
+      return sum + t.goldGrams;
+    }
+    if (t.category === 'gold_sell' && t.goldGrams) {
+      return sum - t.goldGrams;
+    }
+    return sum;
+  }, 0);
+
+  const bankDiff = Math.round((bankBalance - calculatedBank) * 100) / 100;
+  const cashDiff = Math.round((cashBalance - calculatedCash) * 100) / 100;
+  const goldDiff = Math.round((gold.grams - calculatedGold) * 1000) / 1000;
+
+  const handleRegisterDiscrepancies = () => {
+    if (!onAddTransaction) return;
+
+    let registeredCount = 0;
+
+    if (Math.abs(bankDiff) > 0.01) {
+      onAddTransaction({
+        date: new Date().toISOString().substring(0, 10),
+        type: bankDiff > 0 ? 'income' : 'expense',
+        amount: Math.abs(bankDiff),
+        category: bankDiff > 0 ? 'other_income' : 'other_expense',
+        description: `رصيد افتتاحي مطابَق وتعديل رصيد الحساب البنكي`,
+        paymentMethod: 'card',
+        account: 'bank'
+      });
+      registeredCount++;
+    }
+
+    if (Math.abs(cashDiff) > 0.01) {
+      onAddTransaction({
+        date: new Date().toISOString().substring(0, 10),
+        type: cashDiff > 0 ? 'income' : 'expense',
+        amount: Math.abs(cashDiff),
+        category: cashDiff > 0 ? 'other_income' : 'other_expense',
+        description: `رصيد افتتاحي مطابَق وتعديل رصيد الخزنة النقدية (كاش)`,
+        paymentMethod: 'cash',
+        account: 'cash'
+      });
+      registeredCount++;
+    }
+
+    if (Math.abs(goldDiff) > 0.001) {
+      onAddTransaction({
+        date: new Date().toISOString().substring(0, 10),
+        type: goldDiff > 0 ? 'expense' : 'income',
+        amount: Math.round(Math.abs(goldDiff) * gold.currentPricePerGram * 100) / 100,
+        category: goldDiff > 0 ? 'gold_buy' : 'gold_sell',
+        description: `تعديل مخزون الذهب لتسجيل الفارق المطابق للجرامات`,
+        account: goldDiff > 0 ? 'gold_purchase' : 'gold_sale',
+        goldGrams: Math.abs(goldDiff)
+      });
+      registeredCount++;
+    }
+
+    setAuditSuccess(`تمت مطابقة وتدوين الفروقات بنجاح! تم تسجيل ${registeredCount} حركات تسوية مالية بالسجل لإثبات الأرصدة.`);
+    setTimeout(() => setAuditSuccess(null), 5000);
+  };
+
+  const handleForceMatchBalances = () => {
+    setBankBalance(Math.round(calculatedBank * 100) / 100);
+    setCashBalance(Math.round(calculatedCash * 100) / 100);
+    updateGoldGrams(Math.round(calculatedGold * 1000) / 1000);
+
+    setAuditSuccess("تمت إعادة مطابقة الأرصدة الحالية لتتطابق تماماً وبشكل دقيق مع مجموع الحركات المالية المدونة بالسجل!");
+    setTimeout(() => setAuditSuccess(null), 5000);
+  };
   
   // Current month's income and expenses
   const currentMonthStr = new Date().toISOString().substring(0, 7); // YYYY-MM
@@ -600,7 +710,168 @@ export default function Dashboard({
         </div>
       </div>
 
+      {/* Account Audit and Reconciliation Tool */}
+      <div className="bg-slate-900 border border-slate-800 text-white p-6 rounded-3xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-2xl border border-emerald-500/30 shrink-0">
+              <CheckCircle2 className="w-6 h-6 animate-pulse" />
+            </div>
+            <div className="text-right">
+              <h3 className="text-sm font-black text-white flex items-center gap-1.5">
+                نظام تدقيق الحسابات ومطابقة الأرصدة 🛡️
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold">نشط ومؤمّن</span>
+              </h3>
+              <p className="text-[11px] text-slate-400 font-sans mt-0.5">
+                تطابق تلقائي وفحص رياضي مستمر للعمليات الحسابية لمطابقة أرصدة البنك والكاش والذهب بالسجل التاريخي.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowAuditTool(!showAuditTool)}
+            className="text-xs bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black px-4.5 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5 self-start sm:self-center shrink-0"
+          >
+            {showAuditTool ? 'إغلاق نافذة التدقيق ✖' : 'فتح لوحة تدقيق المطابقة 📊'}
+          </button>
+        </div>
 
+        {auditSuccess && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-4 p-3.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-2xl text-xs font-bold"
+          >
+            {auditSuccess}
+          </motion.div>
+        )}
+
+        <AnimatePresence>
+          {showAuditTool && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden mt-6 pt-6 border-t border-slate-800 space-y-5 text-right"
+            >
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Bank Account Reconciliation */}
+                <div className="bg-slate-950/50 p-4 rounded-2xl border border-slate-800 space-y-3.5">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-black text-white">💰 تدقيق الحساب البنكي</span>
+                    {Math.abs(bankDiff) <= 0.01 ? (
+                      <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold">متطابق 100%</span>
+                    ) : (
+                      <span className="text-[9px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-bold">غير متطابق</span>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-1.5 text-xs text-slate-400 font-mono">
+                    <div className="flex justify-between">
+                      <span>الرصيد الفعلي الحالي:</span>
+                      <span className="text-white font-bold">€{bankBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>المحسوب من السجل:</span>
+                      <span className="text-white font-bold">€{calculatedBank.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-800/80 pt-1.5 font-sans">
+                      <span className="text-slate-400">الفارق (الرصيد الافتتاحي):</span>
+                      <span className={`font-mono font-black ${bankDiff === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        {bankDiff > 0 ? '+' : ''}€{bankDiff.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cash Account Reconciliation */}
+                <div className="bg-slate-950/50 p-4 rounded-2xl border border-slate-800 space-y-3.5">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-black text-white">💵 تدقيق خزنة الكاش</span>
+                    {Math.abs(cashDiff) <= 0.01 ? (
+                      <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold">متطابق 100%</span>
+                    ) : (
+                      <span className="text-[9px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-bold">غير متطابق</span>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-1.5 text-xs text-slate-400 font-mono">
+                    <div className="flex justify-between">
+                      <span>الرصيد الفعلي الحالي:</span>
+                      <span className="text-white font-bold">€{cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>المحسوب من السجل:</span>
+                      <span className="text-white font-bold">€{calculatedCash.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-800/80 pt-1.5 font-sans">
+                      <span className="text-slate-400">الفارق (الرصيد الافتتاحي):</span>
+                      <span className={`font-mono font-black ${cashDiff === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        {cashDiff > 0 ? '+' : ''}€{cashDiff.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Gold Account Reconciliation */}
+                <div className="bg-slate-950/50 p-4 rounded-2xl border border-slate-800 space-y-3.5">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-black text-white">🪙 تدقيق مخزون الذهب</span>
+                    {Math.abs(goldDiff) <= 0.001 ? (
+                      <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold">متطابق 100%</span>
+                    ) : (
+                      <span className="text-[9px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-bold">غير متطابق</span>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-1.5 text-xs text-slate-400 font-mono">
+                    <div className="flex justify-between">
+                      <span>المخزون الفعلي الحالي:</span>
+                      <span className="text-white font-bold">{gold.grams.toLocaleString()} جرام</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>المحسوب من السجل:</span>
+                      <span className="text-white font-bold">{calculatedGold.toLocaleString()} جرام</span>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-800/80 pt-1.5 font-sans">
+                      <span className="text-slate-400">فارق الجرامات المعلقة:</span>
+                      <span className={`font-mono font-black ${goldDiff === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        {goldDiff > 0 ? '+' : ''}{goldDiff.toLocaleString()} جرام
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status Explanation / Education */}
+              <div className="p-4 bg-slate-950/30 border border-slate-800/60 rounded-2xl text-xs leading-relaxed text-slate-300">
+                <span className="font-bold text-white block mb-1">💡 كيف يتم هذا الفحص الدقيق؟</span>
+                يقوم النظام بالرجوع إلى كامل سجل الحركات والعمليات التاريخية المدونة في حسابك ويقوم بجمعها وطرحها رياضياً بشكل دقيق جداً (معالجة الأخطاء العشرية)، ثم يقارن النتيجة بالرصيد الفعلي المعروض في حسابك البنكي وخزنة الكاش الخاصة بك. 
+                <br />
+                <span className="text-amber-400 font-bold">ملاحظة:</span> إذا كان لديك فارق معلق، فهذا يرجع لعدم تسجيلك "للأرصدة الافتتاحية" عند بدء استخدام التطبيق أو قيامك بتعديل يدوي عشوائي للأرصدة من بطاقات الحسابات دون تدوين الحركة بالسجل.
+              </div>
+
+              {/* Action buttons */}
+              {(Math.abs(bankDiff) > 0.01 || Math.abs(cashDiff) > 0.01 || Math.abs(goldDiff) > 0.001) && (
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <button
+                    onClick={handleRegisterDiscrepancies}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-5 py-3 rounded-xl transition-all shadow-xs cursor-pointer"
+                  >
+                    📝 مطابقة تلقائية: تسجيل الفروقات كـ "أرصدة افتتاحية" تسووية
+                  </button>
+                  <button
+                    onClick={handleForceMatchBalances}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs px-5 py-3 rounded-xl transition-all border border-slate-700 cursor-pointer"
+                  >
+                    🔄 تصفير الفروقات: إعادة ضبط الأرصدة لتطابق سجل الحركات التاريخية تماماً
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* Internal Transfer Module - Extremely Simple & Sleek Block */}
       <div className="bg-slate-50 border border-slate-100 p-5 rounded-3xl">

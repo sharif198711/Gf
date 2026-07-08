@@ -7,20 +7,36 @@
     <script>
       // Safe sandbox fallback: prevent crashes when extensions or polyfills try to write to a read-only window.fetch
       try {
-        const desc = Object.getOwnPropertyDescriptor(window, 'fetch') || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(window), 'fetch');
-        if (window.fetch && desc && (desc.writable === false || (desc.get && !desc.set) || (!desc.writable && !desc.set))) {
+        if (window.fetch) {
           const originalFetch = window.fetch;
-          let currentFetch = originalFetch;
-          Object.defineProperty(window, 'fetch', {
-            get() {
-              return currentFetch;
-            },
-            set(value) {
-              currentFetch = value;
-            },
-            configurable: true,
-            enumerable: true
-          });
+          try {
+            Object.defineProperty(window, 'fetch', {
+              value: originalFetch,
+              writable: true,
+              configurable: true,
+              enumerable: true
+            });
+          } catch (e1) {
+            // Fallback: define getter and setter on prototype if instance is not configurable
+            const proto = Object.getPrototypeOf(window);
+            if (proto) {
+              Object.defineProperty(proto, 'fetch', {
+                get() {
+                  return originalFetch;
+                },
+                set(value) {
+                  Object.defineProperty(window, 'fetch', {
+                    value: value,
+                    writable: true,
+                    configurable: true,
+                    enumerable: true
+                  });
+                },
+                configurable: true,
+                enumerable: true
+              });
+            }
+          }
         }
       } catch (e) {
         console.warn('Sandbox window.fetch patch omitted:', e);
