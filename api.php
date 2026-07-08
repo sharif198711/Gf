@@ -296,21 +296,28 @@ if ($route === 'install') {
     }
 
     try {
-        // Connect without database selected first (in case we need to create it)
-        $dsn_no_db = "mysql:host={$host};port={$port};charset=utf8mb4";
         $options = [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4"
         ];
-        
-        $test_pdo = new PDO($dsn_no_db, $user, $pass, $options);
-        
-        // Create database if not exists (if privilege allows)
-        $test_pdo->exec("CREATE DATABASE IF NOT EXISTS `{$name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-        
-        // Connect to database
-        $test_pdo->exec("USE `{$name}`");
+
+        // First attempt: Connect directly to the database (Crucial for shared hosting like Hostinger!)
+        try {
+            $dsn_with_db = "mysql:host={$host};dbname={$name};port={$port};charset=utf8mb4";
+            $test_pdo = new PDO($dsn_with_db, $user, $pass, $options);
+        } catch (PDOException $e_direct) {
+            // Second attempt: Fallback to connect without database name and try creating it (for local testing/empty server)
+            try {
+                $dsn_no_db = "mysql:host={$host};port={$port};charset=utf8mb4";
+                $test_pdo = new PDO($dsn_no_db, $user, $pass, $options);
+                $test_pdo->exec("CREATE DATABASE IF NOT EXISTS `{$name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+                $test_pdo->exec("USE `{$name}`");
+            } catch (PDOException $e_fallback) {
+                // Throw the original direct connection exception as it is the most meaningful
+                throw $e_direct;
+            }
+        }
 
         // Create table: users
         $sql_users = "CREATE TABLE IF NOT EXISTS users (
