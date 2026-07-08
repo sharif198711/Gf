@@ -462,7 +462,11 @@ if ($route === 'install') {
 
     } catch (PDOException $e) {
         http_response_code(500);
-        echo json_encode(["error" => "فشل تثبيت قاعدة البيانات: " . $e->getMessage()]);
+        $msg = $e->getMessage();
+        if (strpos($msg, 'Unknown database') !== false || strpos($msg, 'Access denied') !== false || strpos($msg, 'Access Denied') !== false) {
+            $msg .= "\n\n💡 ملاحظة هامة لـ Hostinger: تتطلب الاستضافة المشتركة إنشاء قاعدة البيانات والارتباط يدوياً أولاً في لوحة التحكم (hPanel) لأسباب أمنية قبل الاتصال بها. يرجى التوجه إلى لوحة تحكم Hostinger -> قواعد البيانات -> وإنشاء قاعدة بيانات جديدة ومستخدم بنفس الأسماء (`{$name}` و `{$user}`)، ثم الضغط على زر التثبيت مجدداً ليقوم التطبيق بإنشاء وتأسيس الجداول بنسبة 100% تلقائياً!";
+        }
+        echo json_encode(["error" => "فشل تثبيت قاعدة البيانات: " . $msg]);
         exit;
     }
 }

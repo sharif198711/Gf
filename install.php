@@ -24,24 +24,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $logs[] = "⏳ جاري محاولة الاتصال بخادم MySQL...";
             
-            // Connect to server (without DB first, in case we need to create it)
-            $dsn_no_db = "mysql:host={$db_host};charset=utf8mb4";
             $options = [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4"
             ];
             
-            $pdo = new PDO($dsn_no_db, $db_user, $db_pass, $options);
-            $logs[] = "✅ تم الاتصال بخادم MySQL بنجاح.";
+            $pdo = null;
+            $db_connected = false;
 
-            // Try creating the database if it doesn't exist
-            $logs[] = "⏳ جاري التحقق من وجود قاعدة البيانات `{$db_name}`...";
-            $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-            $logs[] = "✅ قاعدة البيانات `{$db_name}` جاهزة للعمل.";
-
-            // Re-connect to the specific database
-            $pdo->exec("USE `{$db_name}`");
+            // First attempt: Connect directly to the database (Crucial for shared hosting like Hostinger!)
+            try {
+                $logs[] = "🔄 المحاولة الأولى: الاتصال المباشر بقاعدة البيانات `{$db_name}`...";
+                $dsn_with_db = "mysql:host={$db_host};dbname={$db_name};charset=utf8mb4";
+                $pdo = new PDO($dsn_with_db, $db_user, $db_pass, $options);
+                $db_connected = true;
+                $logs[] = "✅ تم الاتصال المباشر بقاعدة البيانات بنجاح (موجودة بالفعل).";
+            } catch (PDOException $e_direct) {
+                $logs[] = "⚠️ فشل الاتصال المباشر (قد تكون قاعدة البيانات غير موجودة بعد).";
+                
+                // Second attempt: Fallback to connect without database name and try creating it (for local testing/empty server)
+                try {
+                    $logs[] = "🔄 المحاولة الثانية: الاتصال بالخادم الرئيسي لمحاولة إنشاء قاعدة البيانات...";
+                    $dsn_no_db = "mysql:host={$db_host};charset=utf8mb4";
+                    $pdo = new PDO($dsn_no_db, $db_user, $db_pass, $options);
+                    
+                    $logs[] = "⏳ جاري محاولة إنشاء قاعدة البيانات `{$db_name}` تلقائياً...";
+                    $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+                    $pdo->exec("USE `{$db_name}`");
+                    $db_connected = true;
+                    $logs[] = "✅ تم إنشاء قاعدة البيانات `{$db_name}` وتحديدها بنجاح!";
+                } catch (PDOException $e_fallback) {
+                    $logs[] = "❌ فشل محاولة إنشاء قاعدة البيانات برمجياً بسبب قيود السيرفر (Access Denied).";
+                    $logs[] = "💡 ملاحظة هامة جداً لبيئة Hostinger:";
+                    $logs[] = "في الاستضافات المشتركة (Hostinger)، لا تسمح قواعد البيانات بإنشاء قواعد بيانات جديدة من خلال كود PHP مباشرة لأسباب أمنية.";
+                    $logs[] = "يرجى اتباع هذه الخطوة البسيطة في دقيقتين فقط:";
+                    $logs[] = "1. ادخل إلى لوحة تحكم Hostinger hPanel الخاصة بك.";
+                    $logs[] = "2. اذهب إلى قسم (Databases) -> قواعد بيانات MySQL (MySQL Databases).";
+                    $logs[] = "3. قم بإنشاء قاعدة بيانات جديدة باسم: `{$db_name}` ومستخدم باسم: `{$db_user}` وكلمة مرور.";
+                    $logs[] = "4. بعد إنشائها في لوحة التحكم، ارجع هنا واكتب نفس البيانات واضغط 'تهيئة الجداول وتثبيت قاعدة البيانات' وسيعمل بنجاح 100% فوراً!";
+                    
+                    // Re-throw the direct connection exception so it falls into the outer catch
+                    throw $e_direct;
+                }
+            }
 
             // --- CREATE TABLE: users ---
             $logs[] = "⏳ جاري إنشاء جدول المستخدمين (users)...";
