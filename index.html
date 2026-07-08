@@ -9,10 +9,15 @@
       try {
         if (window.fetch) {
           const originalFetch = window.fetch;
+          let currentFetch = originalFetch;
           try {
             Object.defineProperty(window, 'fetch', {
-              value: originalFetch,
-              writable: true,
+              get() {
+                return currentFetch;
+              },
+              set(value) {
+                currentFetch = value;
+              },
               configurable: true,
               enumerable: true
             });
@@ -20,21 +25,20 @@
             // Fallback: define getter and setter on prototype if instance is not configurable
             const proto = Object.getPrototypeOf(window);
             if (proto) {
-              Object.defineProperty(proto, 'fetch', {
-                get() {
-                  return originalFetch;
-                },
-                set(value) {
-                  Object.defineProperty(window, 'fetch', {
-                    value: value,
-                    writable: true,
-                    configurable: true,
-                    enumerable: true
-                  });
-                },
-                configurable: true,
-                enumerable: true
-              });
+              try {
+                Object.defineProperty(proto, 'fetch', {
+                  get() {
+                    return currentFetch;
+                  },
+                  set(value) {
+                    currentFetch = value;
+                  },
+                  configurable: true,
+                  enumerable: true
+                });
+              } catch (e2) {
+                console.warn('Could not patch prototype fetch:', e2);
+              }
             }
           }
         }
