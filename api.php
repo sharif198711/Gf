@@ -186,6 +186,170 @@ if ($route === 'db-status') {
 // Read raw JSON input
 $input_data = json_decode(file_get_contents('php://input'), true);
 
+// ---------------------------------------------------------
+// ROUTE: INSTALL (Automatic DB setup from within the App)
+// ---------------------------------------------------------
+if ($route === 'install') {
+    // Read parameters
+    $host = isset($input_data['dbHost']) ? trim($input_data['dbHost']) : '127.0.0.1';
+    $port = isset($input_data['dbPort']) ? trim($input_data['dbPort']) : '3306';
+    $user = isset($input_data['dbUser']) ? trim($input_data['dbUser']) : '';
+    $pass = isset($input_data['dbPassword']) ? trim($input_data['dbPassword']) : '';
+    $name = isset($input_data['dbName']) ? trim($input_data['dbName']) : '';
+    $gemini_key = isset($input_data['geminiApiKey']) ? trim($input_data['geminiApiKey']) : '';
+
+    if (empty($name) || empty($user)) {
+        http_response_code(400);
+        echo json_encode(["error" => "جميع الحقول (اسم قاعدة البيانات واسم المستخدم) مطلوبة لتثبيت النظام."]);
+        exit;
+    }
+
+    try {
+        // Connect without database selected first (in case we need to create it)
+        $dsn_no_db = "mysql:host={$host};port={$port};charset=utf8mb4";
+        $options = [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4"
+        ];
+        
+        $test_pdo = new PDO($dsn_no_db, $user, $pass, $options);
+        
+        // Create database if not exists (if privilege allows)
+        $test_pdo->exec("CREATE DATABASE IF NOT EXISTS `{$name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        
+        // Connect to database
+        $test_pdo->exec("USE `{$name}`");
+
+        // Create table: users
+        $sql_users = "CREATE TABLE IF NOT EXISTS users (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            email VARCHAR(255) UNIQUE NOT NULL,
+            password VARCHAR(255) NOT NULL,
+            bank_balance DECIMAL(15, 2) DEFAULT 0.00,
+            cash_balance DECIMAL(15, 2) DEFAULT 0.00,
+            gold_grams DECIMAL(10, 3) DEFAULT 0.000,
+            gold_price_per_gram DECIMAL(10, 2) DEFAULT 75.00,
+            goal_target DECIMAL(15, 2) DEFAULT 100000.00,
+            goal_title VARCHAR(255) DEFAULT 'توفير مئة ألف يورو',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+        $test_pdo->exec($sql_users);
+
+        // Create table: transactions
+        $sql_transactions = "CREATE TABLE IF NOT EXISTS transactions (
+            id VARCHAR(50) PRIMARY KEY,
+            user_id INT NOT NULL,
+            date DATE NOT NULL,
+            type VARCHAR(20) NOT NULL,
+            amount DECIMAL(15, 2) NOT NULL,
+            category VARCHAR(100) NOT NULL,
+            description VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+            account VARCHAR(100) NOT NULL,
+            gold_grams DECIMAL(10, 3) DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+        $test_pdo->exec($sql_transactions);
+
+        // Create table: category_budgets
+        $sql_budgets = "CREATE TABLE IF NOT EXISTS category_budgets (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            category_key VARCHAR(100) NOT NULL,
+            limit_amount DECIMAL(15, 2) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_user_category (user_id, category_key),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+        $test_pdo->exec($sql_budgets);
+
+        // Insert default admin user: admin@hassala.com
+        $stmt_check_user = $test_pdo->prepare("SELECT id FROM users WHERE email = ?");
+        $stmt_check_user->execute(['admin@hassala.com']);
+        $existing_user = $stmt_check_user->fetch();
+
+        if (!$existing_user) {
+            $stmt_insert_user = $test_pdo->prepare("INSERT INTO users (email, password, bank_balance, cash_balance, gold_grams, gold_price_per_gram, goal_target, goal_title) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt_insert_user->execute([
+                'admin@hassala.com',
+                '123456',
+                1980.00,
+                0.00,
+                10.000,
+                75.00,
+                100000.00,
+                'توفير مئة ألف يورو'
+            ]);
+            $user_id = $test_pdo->lastInsertId();
+        } else {
+            $user_id = $existing_user['id'];
+        }
+
+        // Insert sample transactions
+        $sample_txs = [
+            ['init-1', $user_id, date('Y-m-d', strtotime('-10 days')), 'income', 4200.00, 'salary', 'الراتب الشهري الأساسي', 'bank', null],
+            ['init-2', $user_id, date('Y-m-d', strtotime('-9 days')), 'expense', 1100.00, 'rent', 'إيجار شقة السكن لشهر يونيو', 'bank', null],
+            ['init-3', $user_id, date('Y-m-d', strtotime('-7 days')), 'expense', 150.00, 'utilities', 'فاتورة الكهرباء والغاز والانترنت والماء', 'bank', null],
+            ['init-4', $user_id, date('Y-m-d', strtotime('-5 days')), 'expense', 750.00, 'gold_buy', 'ادخار وشراء سبيكة ذهب عيار 24', 'gold_purchase', 10.000],
+            ['init-5', $user_id, date('Y-m-d', strtotime('-2 days')), 'expense', 220.00, 'groceries', 'مقاضي ومواد غذائية ولحوم للبيت', 'bank', null]
+        ];
+
+        $stmt_tx_check = $test_pdo->prepare("SELECT id FROM transactions WHERE id = ?");
+        $stmt_tx_insert = $test_pdo->prepare("INSERT INTO transactions (id, user_id, date, type, amount, category, description, account, gold_grams) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+
+        foreach ($sample_txs as $tx) {
+            $stmt_tx_check->execute([$tx[0]]);
+            if (!$stmt_tx_check->fetch()) {
+                $stmt_tx_insert->execute($tx);
+            }
+        }
+
+        // Insert budgets
+        $sample_budgets = [
+            ['rent', 1200.00],
+            ['groceries', 400.00],
+            ['utilities', 200.00],
+            ['transportation', 150.00],
+            ['health', 100.00],
+            ['entertainment', 250.00],
+            ['gold_buy', 1000.00],
+            ['other_expense', 300.00]
+        ];
+
+        $stmt_budget_check = $test_pdo->prepare("SELECT id FROM category_budgets WHERE user_id = ? AND category_key = ?");
+        $stmt_budget_insert = $test_pdo->prepare("INSERT INTO category_budgets (user_id, category_key, limit_amount) VALUES (?, ?, ?)");
+
+        foreach ($sample_budgets as $bg) {
+            $stmt_budget_check->execute([$user_id, $bg[0]]);
+            if (!$stmt_budget_check->fetch()) {
+                $stmt_budget_insert->execute([$user_id, $bg[0], $bg[1]]);
+            }
+        }
+
+        // Save to db_config.php
+        $db_config_code = "<?php\n"
+            . "// تم توليد هذا الملف تلقائياً بواسطة معالج التثبيت\n"
+            . "define('DB_HOST', '" . addslashes($host) . "');\n"
+            . "define('DB_NAME', '" . addslashes($name) . "');\n"
+            . "define('DB_USER', '" . addslashes($user) . "');\n"
+            . "define('DB_PASS', '" . addslashes($pass) . "');\n"
+            . "define('GEMINI_API_KEY', '" . addslashes($gemini_key) . "');\n";
+        
+        file_put_contents(__DIR__ . '/db_config.php', $db_config_code);
+
+        echo json_encode([
+            "message" => "تم تهيئة قاعدة البيانات MySQL وتثبيت جميع جداول الحسابات والمدخرات والـ API بنجاح! 🎉"
+        ]);
+        exit;
+
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode(["error" => "فشل تثبيت قاعدة البيانات: " . $e->getMessage()]);
+        exit;
+    }
+}
+
 // Fallback behavior if database is offline or not configured
 if (!$db_connected) {
     if (in_array($route, ['auth/login', 'auth/register', 'auth/google'])) {
